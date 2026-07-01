@@ -1,0 +1,39 @@
+name: Build and Release Electron App
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest]
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Build Renderer and Main
+        run: |
+          node "node_modules/vite/bin/vite.js" build --config vite.config.ts
+          node "node_modules/tsup/dist/cli-default.js" src/main/index.ts src/main/preload.ts --out-dir dist/main --format cjs --external electron
+
+      - name: Package & Publish Electron App
+        run: node "node_modules/electron-builder/cli.js" --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
