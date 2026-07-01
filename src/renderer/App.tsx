@@ -2,19 +2,20 @@ import React, { useState, useEffect } from 'react';
 import { 
   Video, 
   BrainCircuit, 
-  PenTool, 
+  
   Terminal, 
   Settings as SettingsIcon,
   Cpu,
   KeyRound,
-  FileCheck
+  FileCheck,
+  MessageSquare
 } from 'lucide-react';
 
 import MeetingAssistant from './pages/MeetingAssistant';
 import BrainsManager from './pages/BrainsManager';
-import WritingAssistant from './pages/WritingAssistant';
 import PromptStudio from './pages/PromptStudio';
 import Settings from './pages/Settings';
+import ChatAnalyzer from './pages/ChatAnalyzer';
 import HUD from './components/HUD';
 
 // Extend window interface for Electron API
@@ -37,6 +38,7 @@ declare global {
         update: (id: string, name: string, desc: string) => Promise<any[]>;
         delete: (id: string) => Promise<any[]>;
         indexFile: (brainId: string, filePath: string, fileName: string) => Promise<number>;
+        indexRawText: (brainId: string, text: string, sourceName: string) => Promise<number>;
         deleteFile: (brainId: string, fileName: string) => Promise<number>;
         search: (brainId: string, query: string, topK?: number) => Promise<string>;
       };
@@ -49,6 +51,7 @@ declare global {
         translate: (text: string, targetLanguage: string) => Promise<string>;
         suggestReplies: (transcriptSnippet: string, contextInfo: string, userHints: string) => Promise<string[]>;
         summarizeMeeting: (fullTranscript: string) => Promise<any>;
+        analyzeChat: (chatText: string) => Promise<any>;
       };
       window: {
         closeHUD: () => Promise<void>;
@@ -82,19 +85,44 @@ export default function App() {
     refreshData();
   }, []);
 
+  const DEFAULT_SETTINGS = {
+    geminiApiKey: '',
+    openaiApiKey: '',
+    claudeApiKey: '',
+    openrouterApiKey: '',
+    openrouterModel: 'google/gemini-2.5-flash',
+    customApiBaseUrl: '',
+    customApiKey: '',
+    customModel: '',
+    activeProviderId: 'gemini',
+    targetLanguage: 'hi',
+    shortcut: 'CommandOrControl+Shift+E',
+    autoCopy: true,
+    autoReplace: false,
+    launchAtStartup: true,
+    theme: 'dark'
+  };
+
   const refreshData = async () => {
     if (window.api) {
       try {
         const loadedSettings = await window.api.settings.get();
         const loadedBrains = await window.api.brains.get();
-        setSettings(loadedSettings);
-        setBrains(loadedBrains);
-        if (loadedBrains.length > 0 && !activeBrainId) {
+        setSettings(loadedSettings || DEFAULT_SETTINGS);
+        setBrains(loadedBrains || []);
+        if (loadedBrains && loadedBrains.length > 0 && !activeBrainId) {
           setActiveBrainId(loadedBrains[0].id);
         }
       } catch (err) {
         console.error('Failed to load storage details:', err);
+        // Fallback so UI never gets stuck on spinner
+        setSettings(DEFAULT_SETTINGS);
       }
+    } else {
+      // Running in browser (no Electron context) — use defaults so UI renders
+      console.warn('[App] window.api not available — using default settings for dev preview');
+      setSettings(DEFAULT_SETTINGS);
+      setBrains([]);
     }
   };
 
@@ -112,10 +140,10 @@ export default function App() {
             setActiveBrainId={setActiveBrainId}
           />
         );
+      case 'analyzer':
+        return <ChatAnalyzer brains={brains} onRefresh={refreshData} />;
       case 'brains':
         return <BrainsManager brains={brains} onRefresh={refreshData} />;
-      case 'writing':
-        return <WritingAssistant />;
       case 'prompts':
         return <PromptStudio />;
       case 'settings':
@@ -131,110 +159,96 @@ export default function App() {
       case 'openai': return 'OpenAI GPT';
       case 'gemini': return 'Google Gemini';
       case 'claude': return 'Anthropic Claude';
+      case 'openrouter': return `OpenRouter (${settings.openrouterModel ? settings.openrouterModel.split('/').pop() : 'Model'})`;
       case 'custom': return 'Custom API';
       default: return 'Google Gemini';
     }
   };
 
+  const navItems = [
+    { id: 'meeting',  label: 'Meeting Assistant',  Icon: Video },
+    { id: 'analyzer', label: 'Chat Analyzer',      Icon: MessageSquare },
+    { id: 'brains',   label: 'Client Brains',       Icon: BrainCircuit },
+        { id: 'prompts',  label: 'Prompt Studio',       Icon: Terminal },
+    { id: 'settings', label: 'Settings',            Icon: SettingsIcon },
+  ];
+
   return (
     <div className="app-container">
-      {/* Sidebar Navigation */}
-      <aside className="sidebar glass-panel p-4 flex flex-col justify-between" style={{ padding: '1.25rem' }}>
-        <div className="flex flex-col gap-6">
-          {/* Brand Logo */}
-          <div className="flex items-center gap-2 px-2 py-3">
-            <div className="w-8 h-8 rounded-lg grad-btn flex items-center justify-center shadow-lg">
-              <Cpu className="w-4 h-4 text-white animate-pulse-slow" />
+      {/* ---- Premium Sidebar ---- */}
+      <aside className="sidebar glass-panel" style={{ padding: '20px 14px', justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
+
+          {/* Brand */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '4px 4px 12px' }}>
+            <div style={{
+              width: 34, height: 34, borderRadius: 10,
+              background: 'linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: '0 0 18px rgba(124,58,237,0.55), inset 0 1px 0 rgba(255,255,255,0.15)',
+              flexShrink: 0, position: 'relative'
+            }}>
+              <Cpu style={{ width: 16, height: 16, color: '#fff' }} className="animate-pulse-slow" />
             </div>
             <div>
-              <h1 className="text-sm font-bold tracking-tight text-white font-display">StackOrbitAI</h1>
-              <span className="text-[10px] text-zinc-500 font-mono">MEETING COPILOT v1.0</span>
+              <div style={{ fontSize: '0.875rem', fontWeight: 700, color: '#f4f4f5', fontFamily: "'Outfit', sans-serif", letterSpacing: '-0.03em', lineHeight: 1.2 }}>
+                StackOrbitAI
+              </div>
+              <div style={{ fontSize: '9px', color: '#818cf8', fontFamily: 'monospace', fontWeight: 600, letterSpacing: '0.08em', marginTop: 1 }}>
+                MEETING COPILOT v1.0
+              </div>
             </div>
           </div>
 
-          {/* Navigation Menu */}
-          <nav className="flex flex-col gap-1.5">
-            <button
-              onClick={() => setActiveTab('meeting')}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                activeTab === 'meeting'
-                  ? 'bg-zinc-800/80 text-white shadow-md border-l-2 border-indigo-500'
-                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60'
-              }`}
-            >
-              <Video className="w-4 h-4" />
-              Meeting Assistant
-            </button>
-
-            <button
-              onClick={() => setActiveTab('brains')}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                activeTab === 'brains'
-                  ? 'bg-zinc-800/80 text-white shadow-md border-l-2 border-indigo-500'
-                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60'
-              }`}
-            >
-              <BrainCircuit className="w-4 h-4" />
-              Client Brains
-            </button>
-
-            <button
-              onClick={() => setActiveTab('writing')}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                activeTab === 'writing'
-                  ? 'bg-zinc-800/80 text-white shadow-md border-l-2 border-indigo-500'
-                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60'
-              }`}
-            >
-              <PenTool className="w-4 h-4" />
-              Writing Assistant
-            </button>
-
-            <button
-              onClick={() => setActiveTab('prompts')}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                activeTab === 'prompts'
-                  ? 'bg-zinc-800/80 text-white shadow-md border-l-2 border-indigo-500'
-                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60'
-              }`}
-            >
-              <Terminal className="w-4 h-4" />
-              Prompt Studio
-            </button>
-
-            <button
-              onClick={() => setActiveTab('settings')}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                activeTab === 'settings'
-                  ? 'bg-zinc-800/80 text-white shadow-md border-l-2 border-indigo-500'
-                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/60'
-              }`}
-            >
-              <SettingsIcon className="w-4 h-4" />
-              Settings
-            </button>
-          </nav>
+          {/* Section label */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div style={{ fontSize: '9px', fontWeight: 600, color: '#3f3f46', letterSpacing: '0.1em', textTransform: 'uppercase', padding: '0 4px', marginBottom: 4 }}>
+              Navigation
+            </div>
+            <nav style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              {navItems.map(({ id, label, Icon }) => (
+                <button
+                  key={id}
+                  onClick={() => setActiveTab(id)}
+                  className={`nav-item${activeTab === id ? ' active' : ''}`}
+                >
+                  <Icon className="nav-icon" />
+                  <span>{label}</span>
+                </button>
+              ))}
+            </nav>
+          </div>
         </div>
 
-        {/* Footer info & Active Model status */}
-        <div className="flex flex-col gap-3 border-t border-zinc-800/60 pt-4">
-          <div className="glass-card rounded-lg p-3 flex items-center justify-between gap-2">
-            <div className="flex flex-col overflow-hidden">
-              <span className="text-[10px] text-zinc-500 font-medium uppercase tracking-wider">Active Provider</span>
-              <span className="text-xs font-semibold text-zinc-300 truncate">{getActiveProviderLabel()}</span>
+        {/* Footer */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ height: 1, background: 'linear-gradient(90deg, transparent, rgba(124,58,237,0.4), transparent)', margin: '4px 0' }} />
+
+          {/* Provider badge */}
+          <div style={{
+            background: 'rgba(6,78,59,0.12)', border: '1px solid rgba(6,95,70,0.25)',
+            borderRadius: 10, padding: '10px 12px',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8
+          }}>
+            <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+              <span style={{ fontSize: '9px', color: '#52525b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Active Provider</span>
+              <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#d4d4d8' }} className="truncate">{getActiveProviderLabel()}</span>
             </div>
-            <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981] animate-pulse" />
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <div style={{ position: 'absolute', width: 12, height: 12, borderRadius: '50%', border: '1px solid rgba(52,211,153,0.5)' }} className="animate-ping" />
+              <div style={{ width: 9, height: 9, borderRadius: '50%', background: '#10b981', boxShadow: '0 0 10px #10b981', position: 'relative', zIndex: 1 }} />
+            </div>
           </div>
 
-          <div className="text-[10px] text-zinc-600 text-center flex flex-col gap-0.5">
-            <span>Powered by Local RAG Vector Memory</span>
-            <span>All Data Remains Offline-First</span>
+          <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <span className="grad-text" style={{ fontSize: '10px', fontWeight: 500, opacity: 0.8 }}>Powered by Local RAG Vector Memory</span>
+            <span style={{ fontSize: '10px', color: '#3f3f46' }}>All Data Remains Offline-First</span>
           </div>
         </div>
       </aside>
 
-      {/* Main Content Area */}
-      <main className="content-area bg-[#09090b]">
+      {/* ---- Main Content ---- */}
+      <main className="content-area animate-slide-up" style={{ background: 'transparent', position: 'relative', zIndex: 10 }}>
         {renderActiveView()}
       </main>
     </div>

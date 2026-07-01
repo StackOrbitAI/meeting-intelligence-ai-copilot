@@ -30,6 +30,34 @@ export default function BrainsManager({ brains, onRefresh }: BrainsManagerProps)
 
   const activeBrain = brains.find((b) => b.id === selectedBrainId) || brains[0];
 
+  // Adjustable left panel divider state
+  const [leftPanelWidth, setLeftPanelWidth] = useState<number>(300);
+  const [isResizing, setIsResizing] = useState<boolean>(false);
+
+  const startResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+  };
+
+  React.useEffect(() => {
+    if (!isResizing) return;
+    const handleMouseMove = (e: MouseEvent) => {
+      const newWidth = e.clientX - 260; // adjust for sidebar width and padding
+      if (newWidth > 200 && newWidth < 650) {
+        setLeftPanelWidth(newWidth);
+      }
+    };
+    const handleMouseUp = () => {
+      setIsResizing(false);
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing]);
+
   const handleCreateBrain = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newBrainName.trim()) return;
@@ -118,31 +146,29 @@ export default function BrainsManager({ brains, onRefresh }: BrainsManagerProps)
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden p-6 gap-6">
-      {/* Header */}
-      <header className="flex items-center justify-between">
+    <div className="flex-1 flex flex-col h-full overflow-hidden p-6 gap-5">
+      <header className="page-header">
         <div>
-          <h2 className="text-xl font-bold text-white font-display flex items-center gap-2">
+          <h2 className="page-title">
+            <Database style={{ width: 18, height: 18, color: '#a78bfa' }} />
             Client Brains Memory
-            <Database className="w-4 h-4 text-zinc-500" />
           </h2>
-          <p className="text-xs text-zinc-500 font-mono">Create, upload, and index local knowledge spaces for clients</p>
+          <p className="page-subtitle">Create, upload, and index local knowledge spaces for RAG context</p>
         </div>
-
         <button
           onClick={() => setIsCreating(true)}
-          className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold grad-btn text-white shadow-md transition"
+          className="btn-primary"
         >
-          <FolderPlus className="w-3.5 h-3.5" />
+          <FolderPlus style={{ width: 14, height: 14 }} />
           New Client Brain
         </button>
       </header>
 
       {/* Main double panel splits */}
-      <div className="flex-1 flex gap-6 overflow-hidden min-h-0">
+      <div className="flex-1 flex gap-0 overflow-hidden min-h-0 relative">
         
         {/* Left Side: Brains List */}
-        <div className="w-[300px] glass-card rounded-2xl flex flex-col overflow-hidden shrink-0">
+        <div style={{ width: leftPanelWidth }} className="glass-card rounded-2xl flex flex-col overflow-hidden shrink-0">
           <div className="px-5 py-4 border-b border-zinc-800/60 bg-zinc-900/30 flex items-center justify-between">
             <span className="text-xs font-semibold text-zinc-300">Client Profiles</span>
             <span className="text-[10px] text-zinc-500 font-mono">{brains.length} total</span>
@@ -157,13 +183,16 @@ export default function BrainsManager({ brains, onRefresh }: BrainsManagerProps)
                   setUploadError('');
                   setUploadStatus('');
                 }}
-                className={`w-full text-left p-3 rounded-xl border transition-all flex flex-col gap-1 ${
+                className={`w-full text-left p-3.5 rounded-xl border transition-all flex flex-col gap-1 relative overflow-hidden group hover-scale ${
                   selectedBrainId === b.id
-                    ? 'bg-zinc-800/80 border-zinc-700/60 shadow-md'
+                    ? 'bg-zinc-900/60 border-zinc-700 shadow-[0_4px_20px_-5px_rgba(0,0,0,0.5)]'
                     : 'bg-zinc-900/20 border-zinc-900/40 text-zinc-400 hover:text-zinc-300 hover:bg-zinc-900/40'
                 }`}
               >
-                <span className="text-xs font-bold text-white">{b.name}</span>
+                {selectedBrainId === b.id && (
+                  <div className="absolute left-0 top-0 h-full w-1 bg-gradient-to-b from-indigo-500 to-emerald-500"></div>
+                )}
+                <span className="text-xs font-bold text-white transition-colors group-hover:text-indigo-200">{b.name}</span>
                 <span className="text-[10px] text-zinc-550 truncate">{b.description || 'No description'}</span>
                 
                 {/* Stats badge */}
@@ -184,6 +213,35 @@ export default function BrainsManager({ brains, onRefresh }: BrainsManagerProps)
               </div>
             )}
           </div>
+        </div>
+
+        {/* Draggable vertical divider */}
+        <div
+          onMouseDown={startResize}
+          style={{
+            width: '12px',
+            cursor: 'col-resize',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10,
+            userSelect: 'none',
+            background: isResizing ? 'rgba(124, 58, 237, 0.08)' : 'transparent',
+            transition: 'background 0.25s ease'
+          }}
+          className="hover:bg-zinc-800/20 group"
+        >
+          <div
+            style={{
+              width: '2px',
+              height: '40px',
+              borderRadius: '2px',
+              background: isResizing ? '#a78bfa' : 'rgba(255, 255, 255, 0.1)',
+              boxShadow: isResizing ? '0 0 10px #a78bfa' : 'none',
+              transition: 'all 0.25s ease'
+            }}
+            className="group-hover:bg-indigo-400 group-hover:shadow-[0_0_8px_#818cf8]"
+          />
         </div>
 
         {/* Right Side: Brain workspace, upload documents */}
@@ -214,27 +272,29 @@ export default function BrainsManager({ brains, onRefresh }: BrainsManagerProps)
                   <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Index Documents into RAG</label>
                   
                   {/* File Upload portal */}
-                  <div className="border border-dashed border-zinc-800 rounded-xl p-6 bg-zinc-900/10 hover:border-indigo-500/40 transition-all relative flex flex-col items-center justify-center text-center gap-3">
+                  <div className="relative border-2 border-dashed border-zinc-800 rounded-xl p-8 bg-zinc-900/10 hover:border-indigo-500 hover:bg-indigo-950/20 transition-all flex flex-col items-center justify-center text-center gap-4 group hover:shadow-[0_0_30px_rgba(99,102,241,0.15)] overflow-hidden">
                     <input
                       type="file"
                       accept=".txt,.md,.markdown,.html,.pdf,.docx,.xlsx,.xls,.csv"
                       onChange={handleFileChange}
-                      className="absolute inset-0 opacity-0 cursor-pointer"
+                      className="absolute inset-0 opacity-0 cursor-pointer z-20"
                       disabled={isUploading}
                     />
-                    <div className="w-10 h-10 rounded-full bg-zinc-900 flex items-center justify-center text-indigo-400 shadow">
-                      <Upload className="w-4 h-4" />
+                    <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/5 to-purple-500/5 opacity-0 group-hover:opacity-100 transition-opacity z-0"></div>
+                    <div className="w-12 h-12 rounded-full bg-zinc-900/80 flex items-center justify-center text-indigo-400 shadow-[0_0_15px_rgba(99,102,241,0.2)] group-hover:scale-110 transition-transform relative z-10 backdrop-blur-md">
+                      <Upload className="w-5 h-5" />
                     </div>
-                    <div>
-                      <h4 className="text-xs font-semibold text-zinc-300">Click or drag document to index</h4>
-                      <p className="text-[10px] text-zinc-550 mt-1">Supports PDF, DOCX, XLSX, CSV, HTML, MD, TXT</p>
+                    <div className="relative z-10">
+                      <h4 className="text-sm font-bold text-zinc-300 group-hover:text-white transition-colors">Click or drag document to index</h4>
+                      <p className="text-[10px] text-zinc-500 mt-1">Supports PDF, DOCX, XLSX, CSV, HTML, MD, TXT</p>
                     </div>
                   </div>
                 </div>
 
                 {/* Progress bar and logs */}
                 {isUploading && (
-                  <div className="bg-indigo-950/25 border border-indigo-900/40 rounded-xl p-4 flex items-center gap-3">
+                  <div className="bg-indigo-950/25 border border-indigo-900/40 rounded-xl p-4 flex items-center gap-3 relative overflow-hidden">
+                    <div className="absolute top-0 left-0 h-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-500 w-full animate-pulse-slow"></div>
                     <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin shrink-0" />
                     <div className="flex flex-col">
                       <span className="text-xs text-indigo-300 font-semibold">Indexing File</span>
@@ -271,7 +331,7 @@ export default function BrainsManager({ brains, onRefresh }: BrainsManagerProps)
                     {activeBrain.documents?.map((doc: any) => (
                       <div 
                         key={doc.id}
-                        className="flex items-center justify-between p-3 rounded-xl bg-zinc-900/30 border border-zinc-850 hover:bg-zinc-900/50"
+                        className="flex items-center justify-between p-3.5 rounded-xl bg-zinc-900/30 border border-zinc-850 hover:bg-zinc-900/60 hover:border-zinc-700/60 transition-all hover:translate-x-1 group"
                       >
                         <div className="flex items-center gap-3 min-w-0">
                           {getFileIcon(doc.fileType)}

@@ -135,22 +135,20 @@ export default function PromptStudio() {
   const activeT = templates.find(t => t.id === selectedTemplateId) || templates[0];
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden p-6 gap-6">
-      {/* Header */}
-      <header className="flex items-center justify-between">
+    <div className="flex-1 flex flex-col h-full overflow-hidden p-6 gap-5">
+      <header className="page-header">
         <div>
-          <h2 className="text-xl font-bold text-white font-display flex items-center gap-2">
+          <h2 className="page-title">
+            <Terminal style={{ width: 18, height: 18, color: '#a78bfa' }} />
             Prompt Studio
-            <Terminal className="w-4.5 h-4.5 text-zinc-500" />
           </h2>
-          <p className="text-xs text-zinc-500">Tune specialized AI system prompts, orchestrate modes, and test parameters</p>
+          <p className="page-subtitle">Tune specialized AI system prompts, orchestrate modes, and test parameters</p>
         </div>
-
         <button
           onClick={() => { resetForm(); setIsAdding(true); }}
-          className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold grad-btn text-white shadow-md transition"
+          className="btn-primary"
         >
-          <Plus className="w-3.5 h-3.5" />
+          <Plus style={{ width: 14, height: 14 }} />
           Create Template
         </button>
       </header>
@@ -167,48 +165,36 @@ export default function PromptStudio() {
 
           <div className="flex-1 p-3 overflow-y-auto flex flex-col gap-2 bg-zinc-950/20">
             {templates.map((t) => (
-              <div
+              <button
                 key={t.id}
                 onClick={() => {
                   setSelectedTemplateId(t.id);
                   setError('');
                   setPlayOutput('');
                 }}
-                className={`w-full text-left p-3.5 rounded-xl border transition flex items-start justify-between cursor-pointer ${
+                className={`w-full p-3.5 rounded-xl border text-left flex flex-col gap-1.5 transition-all relative group hover-scale ${
                   selectedTemplateId === t.id
-                    ? 'bg-zinc-800/80 border-zinc-700/60 shadow-md text-white'
-                    : 'bg-zinc-900/20 border-zinc-900/40 text-zinc-400 hover:bg-zinc-900/40'
+                    ? 'bg-zinc-900/60 border-zinc-700 shadow-lg'
+                    : 'bg-zinc-900/20 border-zinc-900/40 hover:bg-zinc-900/40 hover:border-zinc-800'
                 }`}
               >
-                <div className="flex flex-col gap-1.5 min-w-0 pr-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-white">{t.name}</span>
-                    {t.isPreset && (
-                      <span className="text-[8px] uppercase font-bold text-indigo-400 bg-indigo-950/40 border border-indigo-900/30 px-1 py-0.25 rounded">
-                        System
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-[10px] text-zinc-550 leading-relaxed truncate">{t.description}</span>
-                </div>
-
-                {!t.isPreset && (
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); startEdit(t); }}
-                      className="p-1 rounded text-zinc-550 hover:text-indigo-400 hover:bg-zinc-800 transition"
-                    >
-                      <Edit3 className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleDeleteTemplate(t.id); }}
-                      className="p-1 rounded text-zinc-550 hover:text-red-400 hover:bg-zinc-800 transition"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
+                {selectedTemplateId === t.id && (
+                  <div className="absolute left-0 top-0 h-full w-1 bg-gradient-to-b from-indigo-500 to-purple-500 rounded-l-xl"></div>
                 )}
-              </div>
+                <div className="flex items-center justify-between">
+                  <span className={`text-xs font-bold transition-colors ${selectedTemplateId === t.id ? 'text-indigo-300' : 'text-zinc-200 group-hover:text-indigo-200'}`}>
+                    {t.name}
+                  </span>
+                  {t.isPreset && (
+                    <span className={`text-[8px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded ${
+                      selectedTemplateId === t.id ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 glow-pill' : 'bg-zinc-800 text-zinc-500'
+                    }`}>
+                      System
+                    </span>
+                  )}
+                </div>
+                <span className="text-[10px] text-zinc-550 leading-relaxed truncate">{t.description}</span>
+              </button>
             ))}
           </div>
         </div>
@@ -224,9 +210,9 @@ export default function PromptStudio() {
             <button
               onClick={handleTestTemplate}
               disabled={isLoading || !playInput.trim()}
-              className="flex items-center gap-1.5 px-4.5 py-1.8 rounded-lg text-xs font-semibold grad-btn text-white shadow-md disabled:opacity-40 disabled:pointer-events-none transition"
+              className="flex items-center gap-1.5 px-5 py-2 rounded-lg text-xs font-semibold grad-btn text-white shadow-lg disabled:opacity-40 disabled:pointer-events-none transition-all hover-scale"
             >
-              <Play className="w-3 h-3 text-white fill-white" />
+              <Play className={`w-3.5 h-3.5 text-white ${isLoading ? 'animate-spin' : ''}`} />
               Run Test
             </button>
           </div>

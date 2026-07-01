@@ -208,6 +208,60 @@ export class RAGService {
   }
 
   /**
+   * Index raw text directly (e.g. pasted chat analysis summary) under a source name.
+   */
+  static async indexRawText(brainId: string, text: string, sourceName: string): Promise<number> {
+    console.log(`[RAG] Indexing raw text for brain: ${brainId}, source: ${sourceName}`);
+    if (!text || text.trim() === '') {
+      throw new Error('No raw text content provided.');
+    }
+
+    const textChunks = this.chunkText(text, 500, 100);
+    console.log(`[RAG] Split raw text into ${textChunks.length} chunks.`);
+
+    const fileChunks: FileChunk[] = [];
+    for (let i = 0; i < textChunks.length; i++) {
+      const content = textChunks[i];
+      try {
+        const embedding = await AIService.getEmbedding(content);
+        fileChunks.push({
+          id: `chunk_${brainId}_raw_${Date.now()}_${i}`,
+          filePath: `raw_text://${sourceName}`,
+          fileName: sourceName,
+          content,
+          embedding
+        });
+      } catch (err: any) {
+        console.error(`[RAG] Failed to compute embedding for raw chunk ${i}:`, err.message || err);
+        throw new Error(`Embedding generation failed: ${err.message || err}`);
+      }
+    }
+
+    const existingChunks = this.loadBrainChunks(brainId);
+    const updatedChunks = existingChunks.filter(c => c.fileName !== sourceName);
+    updatedChunks.push(...fileChunks);
+    this.saveBrainChunks(brainId, updatedChunks);
+
+    const brains = StorageService.getBrains();
+    const idx = brains.findIndex(b => b.id === brainId);
+    if (idx !== -1) {
+      const brain = brains[idx];
+      brain.documents = brain.documents.filter(d => d.fileName !== sourceName);
+      brain.documents.push({
+        id: `doc_raw_${Date.now()}`,
+        filePath: `raw_text://${sourceName}`,
+        fileName: sourceName,
+        fileType: 'TXT',
+        uploadedAt: new Date().toISOString(),
+        chunkCount: fileChunks.length
+      });
+      StorageService.saveBrains(brains);
+    }
+
+    return fileChunks.length;
+  }
+
+  /**
    * Delete document and its chunks from Client Brain vector store
    */
   static deleteFile(brainId: string, fileName: string): number {

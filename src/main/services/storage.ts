@@ -9,7 +9,9 @@ export interface AppSettings {
   customApiBaseUrl: string;
   customApiKey: string;
   customModel: string;
-  activeProviderId: 'openai' | 'gemini' | 'claude' | 'custom';
+  openrouterApiKey: string;
+  openrouterModel: string;
+  activeProviderId: 'openai' | 'gemini' | 'claude' | 'custom' | 'openrouter';
   theme: 'light' | 'dark';
   targetLanguage: string;
   shortcut: string;
@@ -105,6 +107,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   customApiBaseUrl: '',
   customApiKey: '',
   customModel: '',
+  openrouterApiKey: '',
+  openrouterModel: 'google/gemini-2.5-flash',
   activeProviderId: 'gemini',
   theme: 'dark',
   targetLanguage: 'hi', // Hindi default

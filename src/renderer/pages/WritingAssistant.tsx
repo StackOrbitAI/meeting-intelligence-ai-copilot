@@ -85,15 +85,14 @@ export default function WritingAssistant() {
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden p-6 gap-6">
-      {/* Header */}
-      <header className="flex items-center justify-between">
+    <div className="flex-1 flex flex-col h-full overflow-hidden p-6 gap-5">
+      <header className="page-header">
         <div>
-          <h2 className="text-xl font-bold text-white font-display flex items-center gap-2">
+          <h2 className="page-title">
+            <PenTool style={{ width: 18, height: 18, color: '#a78bfa' }} />
             AI Writing Assistant
-            <PenTool className="w-4 h-4 text-zinc-500" />
           </h2>
-          <p className="text-xs text-zinc-500">Draft proposals, rewrite messages, and translate development jargon</p>
+          <p className="page-subtitle">Draft proposals, rewrite messages, and translate development jargon</p>
         </div>
       </header>
 
@@ -115,18 +114,23 @@ export default function WritingAssistant() {
                     setOutputText('');
                     setError('');
                   }}
-                  className={`p-3 rounded-xl border text-left flex gap-3 items-start transition-all ${
+                  className={`p-3.5 rounded-xl border text-left flex gap-3 items-start transition-all relative overflow-hidden group hover-scale ${
                     activeToneId === tone.id
-                      ? 'bg-zinc-800/80 border-zinc-700/60 shadow-md'
-                      : 'bg-zinc-900/20 border-zinc-900/40 text-zinc-400 hover:text-zinc-350 hover:bg-zinc-900/40'
+                      ? 'bg-zinc-900/60 border-zinc-700 shadow-lg'
+                      : 'bg-zinc-900/20 border-zinc-900/40 text-zinc-400 hover:text-zinc-300 hover:bg-zinc-900/40'
                   }`}
                 >
-                  <div className="w-7 h-7 rounded-lg bg-zinc-950 flex items-center justify-center shrink-0">
+                  {activeToneId === tone.id && (
+                    <div className="absolute inset-0 border-2 border-indigo-500/30 rounded-xl pointer-events-none"></div>
+                  )}
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors ${
+                    activeToneId === tone.id ? 'bg-indigo-950/50 shadow-[0_0_15px_rgba(99,102,241,0.2)]' : 'bg-zinc-950 group-hover:bg-zinc-900'
+                  }`}>
                     {tone.icon}
                   </div>
-                  <div className="flex flex-col min-w-0">
-                    <span className="text-xs font-bold text-white leading-normal">{tone.name}</span>
-                    <span className="text-[9px] text-zinc-550 leading-relaxed truncate">{tone.desc}</span>
+                  <div className="flex flex-col min-w-0 pt-0.5">
+                    <span className={`text-xs font-bold leading-normal transition-colors ${activeToneId === tone.id ? 'text-indigo-200' : 'text-white'}`}>{tone.name}</span>
+                    <span className="text-[9px] text-zinc-500 leading-relaxed truncate group-hover:text-zinc-400 transition-colors">{tone.desc}</span>
                   </div>
                 </button>
               ))}
@@ -156,10 +160,10 @@ export default function WritingAssistant() {
               <button
                 onClick={handleGenerate}
                 disabled={isLoading || !inputText.trim()}
-                className="flex items-center gap-1.5 px-4.5 py-1.8 rounded-lg text-xs font-semibold grad-btn text-white shadow-md disabled:opacity-40 disabled:pointer-events-none transition"
+                className="flex items-center gap-1.5 px-5 py-2 rounded-lg text-xs font-semibold grad-btn text-white shadow-md disabled:opacity-40 disabled:pointer-events-none transition-all hover-scale"
               >
                 <Sparkles className="w-3.5 h-3.5 text-white" />
-                Rewrite & Rewrite
+                Enhance & Rewrite
               </button>
             </footer>
           </div>
@@ -196,7 +200,7 @@ export default function WritingAssistant() {
                 <span>{error}</span>
               </div>
             ) : outputText ? (
-              <p className="text-xs text-zinc-300 font-medium leading-relaxed whitespace-pre-wrap">{outputText}</p>
+              <p className="text-xs text-zinc-300 font-medium leading-relaxed whitespace-pre-wrap animate-slide-up">{outputText}</p>
             ) : (
               <div className="flex flex-col items-center justify-center text-center gap-2 h-full opacity-60">
                 <PenTool className="w-8 h-8 text-zinc-700" />

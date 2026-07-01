@@ -1,20 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Play, 
-  Square, 
-  Mic, 
-  MicOff, 
-  Sparkles, 
-  Globe, 
-  ArrowRight, 
-  Keyboard, 
-  Clipboard, 
-  Check, 
-  History,
-  FileText,
-  User,
-  RotateCw,
-  Plus
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import {
+  Play, Square, Mic, MicOff, Sparkles, Globe, ArrowRight,
+  Clipboard, Check, Plus, Volume2, X, Zap, Languages,
+  ChevronRight, User, Bot, Loader2, Send, RefreshCw,
+  Download, ChevronDown, MessageSquare, Lightbulb,
+  Keyboard, Copy, Hash, Clock, TrendingUp
 } from 'lucide-react';
 
 interface MeetingAssistantProps {
@@ -30,732 +20,917 @@ interface TranscriptLine {
   text: string;
   translation?: string;
   timestamp: string;
+  isTranslating?: boolean;
 }
 
+// ── Helpers ──
+const fmtTime = (secs: number) => {
+  const m = Math.floor(secs / 60).toString().padStart(2, '0');
+  const s = (secs % 60).toString().padStart(2, '0');
+  return m + ':' + s;
+};
+const uid = () => 'id_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+
+// ── Quick Reply Phrases (categorized) ──
+const QUICK_PHRASES: { cat: string; phrases: string[] }[] = [
+  { cat: 'Common', phrases: [
+    'Sure, I can do that!',
+    'Let me check and get back to you.',
+    'Could you please repeat that?',
+    'That sounds great!',
+    'I understand, let me explain.',
+  ]},
+  { cat: 'Pricing', phrases: [
+    'Let me share the pricing details.',
+    'The cost depends on the scope of work.',
+    'I can offer a competitive rate for this.',
+    'Shall I send a detailed quote?',
+  ]},
+  { cat: 'Timeline', phrases: [
+    'I can deliver that within a week.',
+    'Let me check my schedule and confirm.',
+    'We can start right away.',
+    'The timeline depends on the requirements.',
+  ]},
+  { cat: 'Closing', phrases: [
+    "Thank you for your time today!",
+    "I'll send you the details right after this call.",
+    "Looking forward to working with you!",
+    "Let me know if you have any other questions.",
+  ]},
+];
+
+// ── Waveform Bar ──
+function LiveBars({ active }: { active: boolean }) {
+  const bars = [3, 5, 8, 12, 7, 10, 5, 3, 9, 6, 4, 11, 7, 5, 8];
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 2, height: 18 }}>
+      {bars.map((h, i) => (
+        <div key={i} style={{
+          width: 2.5, borderRadius: 2,
+          background: active ? 'rgba(167,139,250,0.8)' : 'rgba(63,63,70,0.5)',
+          height: active ? h + 'px' : '3px',
+          transition: 'height 0.15s ease',
+          animationDelay: (i * 50) + 'ms'
+        }} />
+      ))}
+    </div>
+  );
+}
+
+// ── Suggestion Card with Keyboard Shortcut ──
+function SuggestionCard({ text, index, onCopy, onSpeak, isCopied }: any) {
+  return (
+    <div
+      style={{
+        background: 'rgba(14,14,22,0.7)',
+        border: '1px solid rgba(99,102,241,0.2)',
+        borderRadius: 12, padding: '11px 13px',
+        display: 'flex', flexDirection: 'column', gap: 8,
+        transition: 'border-color 0.2s, background 0.2s, transform 0.15s',
+        cursor: 'pointer', position: 'relative'
+      }}
+      onClick={() => onSpeak(text)}
+      onMouseEnter={e => {
+        (e.currentTarget as HTMLElement).style.borderColor = 'rgba(99,102,241,0.45)';
+        (e.currentTarget as HTMLElement).style.background = 'rgba(18,18,32,0.9)';
+        (e.currentTarget as HTMLElement).style.transform = 'translateX(-2px)';
+      }}
+      onMouseLeave={e => {
+        (e.currentTarget as HTMLElement).style.borderColor = 'rgba(99,102,241,0.2)';
+        (e.currentTarget as HTMLElement).style.background = 'rgba(14,14,22,0.7)';
+        (e.currentTarget as HTMLElement).style.transform = 'none';
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+        <div style={{
+          width: 22, height: 22, borderRadius: 6, flexShrink: 0, marginTop: 1,
+          background: 'linear-gradient(135deg, rgba(124,58,237,0.25), rgba(99,102,241,0.15))',
+          border: '1px solid rgba(124,58,237,0.3)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: '0.62rem', fontWeight: 800, color: '#a78bfa'
+        }}>
+          {index + 1}
+        </div>
+        <p style={{ fontSize: '0.82rem', color: '#e4e4e7', lineHeight: 1.55, margin: 0, flex: 1 }}>{text}</p>
+      </div>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        <button
+          onClick={ev => { ev.stopPropagation(); onCopy(text, index); }}
+          style={{
+            flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+            background: isCopied ? 'rgba(16,185,129,0.15)' : 'rgba(99,102,241,0.12)',
+            border: isCopied ? '1px solid rgba(16,185,129,0.35)' : '1px solid rgba(99,102,241,0.25)',
+            borderRadius: 8, padding: '5px 10px', cursor: 'pointer',
+            color: isCopied ? '#34d399' : '#a5b4fc',
+            fontSize: '0.7rem', fontWeight: 600, transition: 'all 0.2s'
+          }}
+        >
+          {isCopied ? <Check style={{ width: 10, height: 10 }} /> : <Copy style={{ width: 10, height: 10 }} />}
+          {isCopied ? 'Copied!' : 'Copy'}
+        </button>
+        <button
+          onClick={ev => { ev.stopPropagation(); onSpeak(text); }}
+          style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+            background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.25)',
+            borderRadius: 8, padding: '5px 12px', cursor: 'pointer', color: '#6ee7b7',
+            fontSize: '0.7rem', fontWeight: 600, transition: 'all 0.2s'
+          }}
+        >
+          <Volume2 style={{ width: 10, height: 10 }} /> Speak
+        </button>
+        <span style={{ fontSize: '0.58rem', color: '#3f3f46', fontFamily: 'monospace', letterSpacing: '0.03em' }}>Ctrl+{index + 1}</span>
+      </div>
+    </div>
+  );
+}
+
+// ── Main Component ──
 export default function MeetingAssistant({ brains, activeBrainId, setActiveBrainId }: MeetingAssistantProps) {
-  const [isMeetingActive, setIsMeetingActive] = useState<boolean>(false);
-  const [isMicMuted, setIsMicMuted] = useState<boolean>(false);
+  // ── Core state ──
+  const [isActive, setIsActive] = useState(false);
+  const [isMicMuted, setIsMicMuted] = useState(false);
   const [transcript, setTranscript] = useState<TranscriptLine[]>([]);
-  const [interimText, setInterimText] = useState<string>('');
-  const [hints, setHints] = useState<string>('');
-  
-  // AI Suggestions
+  const [interimText, setInterimText] = useState('');
+  const [duration, setDuration] = useState(0);
+
+  // ── WebRTC System Audio Loopback ──
+  const [audioSource, setAudioSource] = useState<'mic' | 'zoom'>('zoom');
+  const loopbackStreamRef = useRef<MediaStream | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const loopbackIntervalRef = useRef<any>(null);
+
+  // ── Translation / suggestions ──
   const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [isSuggesting, setIsSuggesting] = useState<boolean>(false);
+  const [isSuggesting, setIsSuggesting] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const [lastBuyerText, setLastBuyerText] = useState('');
 
-  // Audio wave animation simulation
-  const [audioLevel, setAudioLevel] = useState<number>(0);
-  const audioIntervalRef = useRef<any>(null);
+  // ── Hint box ──
+  const [hint, setHint] = useState('');
 
-  // Speech Recognition variables
+  // ── Quick phrases ──
+  const [activeQuickCat, setActiveQuickCat] = useState('Common');
+  const [showQuickPhrases, setShowQuickPhrases] = useState(false);
+
+  // ── Who is speaking ──
+  const [speakerMode, setSpeakerMode] = useState<'buyer' | 'me'>('buyer');
+
+  // ── Topic tracker ──
+  const [meetingTopic, setMeetingTopic] = useState('');
+  const [wordCount, setWordCount] = useState(0);
+
+  // ── Refs ──
   const recognitionRef = useRef<any>(null);
-  const [speechSupported, setSpeechSupported] = useState<boolean>(true);
-
-  // Meeting duration
-  const [duration, setDuration] = useState<number>(0);
-  const timerRef = useRef<any>(null);
-
-  // Summary state
-  const [summaryData, setSummaryData] = useState<any>(null);
-  const [isSummarizing, setIsSummarizing] = useState<boolean>(false);
-  
   const scrollRef = useRef<HTMLDivElement>(null);
+  const timerRef = useRef<any>(null);
+  const hintRef = useRef<HTMLTextAreaElement>(null);
+  const hintDebounceRef = useRef<any>(null);
 
-  const downloadTranscript = () => {
-    if (transcript.length === 0) return;
-    const content = transcript
-      .map(t => `[${t.timestamp}] ${t.speaker}: ${t.text}${t.translation ? `\nTranslation: ${t.translation}` : ''}`)
-      .join('\n\n');
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `Meeting_Transcript_${new Date().toISOString().slice(0, 10)}.txt`;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const downloadSummaryMarkdown = () => {
-    if (!summaryData) return;
-    const content = `# Meeting Summary Report - ${activeBrainObj?.name || 'Client'}
-Date: ${new Date().toLocaleDateString()}
-
-## Outcomes Summary
-${summaryData.summary}
-
-## Action Items
-${summaryData.actionItems.map((item: string) => `- [ ] ${item}`).join('\n')}
-
-## Key Decisions
-${summaryData.decisions.map((dec: string) => `- ${dec}`).join('\n')}
-`;
-    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `Meeting_Summary_${new Date().toISOString().slice(0, 10)}.md`;
-    link.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const getKeywordTags = () => {
-    const buyerLines = transcript.filter(t => t.role === 'buyer');
-    if (buyerLines.length === 0) return [];
-    
-    const allWords = buyerLines
-      .map(t => t.text)
-      .join(' ')
-      .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, "")
-      .split(/\s+/);
-      
-    const stopWords = new Set(['I', 'We', 'They', 'He', 'She', 'The', 'And', 'But', 'Or', 'This', 'That', 'These', 'Those', 'Is', 'Are', 'Was', 'Were', 'Have', 'Has', 'Had', 'To', 'Of', 'In', 'On', 'For', 'With', 'About', 'By', 'At', 'Can', 'You', 'What', 'How', 'Why']);
-    
-    const keywords = allWords.filter(word => {
-      if (word.length < 3) return false;
-      if (word[0] !== word[0].toUpperCase()) return false;
-      if (stopWords.has(word)) return false;
-      return true;
-    });
-
-    return Array.from(new Set(keywords)).slice(0, 8);
-  };
-
+  // ── Keyboard shortcuts for suggestions ──
   useEffect(() => {
-    // 1. Initialize Speech Recognition
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      setSpeechSupported(false);
+    const handler = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key >= '1' && e.key <= '5') {
+        e.preventDefault();
+        const idx = parseInt(e.key) - 1;
+        if (suggestions[idx]) {
+          navigator.clipboard.writeText(suggestions[idx]).catch(() => {});
+          setCopiedIndex(idx);
+          setTimeout(() => setCopiedIndex(null), 2000);
+        }
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [suggestions]);
+
+  // ── Speech recognition init ──
+  useEffect(() => {
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) return;
+
+    const shouldRunSR = isActive && !isMicMuted && (speakerMode === 'me' || audioSource === 'mic');
+    if (!shouldRunSR) {
+      if (recognitionRef.current) {
+        try { recognitionRef.current.stop(); } catch {}
+      }
       return;
     }
 
-    const rec = new SpeechRecognition();
+    const rec = new SR();
     rec.continuous = true;
     rec.interimResults = true;
-    rec.lang = 'en-US'; // Capture English meetings
+    rec.lang = 'en-US';
 
     rec.onresult = async (event: any) => {
-      let finalTranscript = '';
-      let interimTranscript = '';
-
-      for (let i = event.resultIndex; i < event.results.length; ++i) {
-        if (event.results[i].isFinal) {
-          finalTranscript += event.results[i][0].transcript;
-        } else {
-          interimTranscript += event.results[i][0].transcript;
-        }
+      let finalText = '';
+      let interim = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const t = event.results[i][0].transcript;
+        if (event.results[i].isFinal) finalText += t;
+        else interim += t;
       }
-
-      setInterimText(interimTranscript);
-
-      if (finalTranscript.trim() !== '') {
-        handleFinalizedSpeech('user', 'Me', finalTranscript);
+      setInterimText(interim);
+      if (finalText.trim()) {
+        addSpeechLine(speakerMode, speakerMode === 'buyer' ? 'Buyer' : 'Me', finalText.trim());
       }
     };
 
-    rec.onerror = (err: any) => {
-      console.error('[Speech Error]', err);
-    };
-
+    rec.onerror = () => {};
     rec.onend = () => {
-      // Auto-restart if meeting is still active and not muted
-      if (isMeetingActive && !isMicMuted) {
+      if (isActive && !isMicMuted && (speakerMode === 'me' || audioSource === 'mic')) {
         try { rec.start(); } catch {}
       }
     };
 
+    try { rec.start(); } catch {}
     recognitionRef.current = rec;
 
     return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-      if (audioIntervalRef.current) clearInterval(audioIntervalRef.current);
-      if (recognitionRef.current) {
-        try { recognitionRef.current.stop(); } catch {}
+      try { rec.stop(); } catch {}
+    };
+  }, [isActive, isMicMuted, speakerMode, audioSource]);
+
+  // Helper: Start Zoom Loopback Audio Capture
+  const startZoomLoopback = async () => {
+    try {
+      if (!window.api || !window.api.desktopSources) {
+        console.warn("Desktop sources API not available, using default microphone fallback");
+        setAudioSource('mic');
+        return;
+      }
+
+      const sources = await window.api.desktopSources.get();
+      const primaryScreen = sources.find((s: any) => s.id.startsWith('screen:'));
+      if (!primaryScreen) throw new Error("No system screen source found");
+
+      // Capture desktop audio/video
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          mandatory: {
+            chromeMediaSource: 'desktop',
+            chromeMediaSourceId: primaryScreen.id
+          }
+        } as any,
+        video: {
+          mandatory: {
+            chromeMediaSource: 'desktop',
+            chromeMediaSourceId: primaryScreen.id,
+            minWidth: 1, maxWidth: 1, minHeight: 1, maxHeight: 1
+          }
+        } as any
+      });
+
+      // Stop video immediately to preserve resources
+      stream.getVideoTracks().forEach(t => t.stop());
+      loopbackStreamRef.current = stream;
+
+      const audioTrack = stream.getAudioTracks()[0];
+      if (!audioTrack) throw new Error("No audio track found in desktop stream");
+
+      const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      mediaRecorderRef.current = recorder;
+
+      let chunks: Blob[] = [];
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          chunks.push(e.data);
+        }
+      };
+
+      recorder.onstop = async () => {
+        if (chunks.length === 0) return;
+        const blob = new Blob(chunks, { type: 'audio/webm' });
+        chunks = [];
+
+        const reader = new FileReader();
+        reader.readAsDataURL(blob);
+        reader.onloadend = async () => {
+          const base64data = (reader.result as string).split(',')[1];
+          if (!base64data) return;
+
+          try {
+            let targetLang = 'hi';
+            if (window.api) {
+              const s = await window.api.settings.get();
+              targetLang = s?.targetLanguage || 'hi';
+            }
+            const res = await window.api.ai.transcribeAndTranslateAudio(base64data, targetLang);
+            if (res && res.text.trim()) {
+              addSpeechLine('buyer', 'Buyer', res.text.trim());
+            }
+          } catch (err) {
+            console.error("Transcribe/Translate loopback error:", err);
+          }
+        };
+      };
+
+      recorder.start();
+
+      loopbackIntervalRef.current = setInterval(() => {
+        if (recorder.state === 'recording') {
+          recorder.stop();
+          recorder.start();
+        }
+      }, 3500);
+
+    } catch (err) {
+      console.error("Failed to start loopback system audio capture:", err);
+      setAudioSource('mic');
+    }
+  };
+
+  // ── WebRTC Loopback Capture effect ──
+  useEffect(() => {
+    const shouldCaptureZoom = isActive && speakerMode === 'buyer' && audioSource === 'zoom';
+
+    if (!shouldCaptureZoom) {
+      if (loopbackIntervalRef.current) clearInterval(loopbackIntervalRef.current);
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        try { mediaRecorderRef.current.stop(); } catch {}
+      }
+      if (loopbackStreamRef.current) {
+        loopbackStreamRef.current.getTracks().forEach(t => t.stop());
+        loopbackStreamRef.current = null;
+      }
+      return;
+    }
+
+    startZoomLoopback();
+
+    return () => {
+      if (loopbackIntervalRef.current) clearInterval(loopbackIntervalRef.current);
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        try { mediaRecorderRef.current.stop(); } catch {}
+      }
+      if (loopbackStreamRef.current) {
+        loopbackStreamRef.current.getTracks().forEach(t => t.stop());
       }
     };
-  }, [isMeetingActive, isMicMuted]);
+  }, [isActive, speakerMode, audioSource]);
 
-  // Scroll transcript to bottom
+  // Auto-scroll
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [transcript, interimText]);
 
-  // Audio level animation
-  useEffect(() => {
-    if (isMeetingActive && !isMicMuted) {
-      audioIntervalRef.current = setInterval(() => {
-        setAudioLevel(Math.floor(Math.random() * 80) + 10);
-      }, 100);
-    } else {
-      if (audioIntervalRef.current) clearInterval(audioIntervalRef.current);
-      setAudioLevel(0);
-    }
-    return () => {
-      if (audioIntervalRef.current) clearInterval(audioIntervalRef.current);
-    };
-  }, [isMeetingActive, isMicMuted]);
-
-  const startMeeting = () => {
-    setIsMeetingActive(true);
-    setTranscript([]);
-    setInterimText('');
-    setSuggestions([]);
-    setSummaryData(null);
-    setDuration(0);
-
-    // Start clock timer
-    timerRef.current = setInterval(() => {
-      setDuration(prev => prev + 1);
-    }, 1000);
-
-    // Start recognition
-    if (recognitionRef.current && !isMicMuted) {
-      try {
-        recognitionRef.current.start();
-      } catch (e) {
-        console.error('Recognition start error:', e);
-      }
-    }
-  };
-
-  const stopMeeting = async () => {
-    setIsMeetingActive(false);
-    if (timerRef.current) clearInterval(timerRef.current);
-    if (recognitionRef.current) {
-      try {
-        recognitionRef.current.stop();
-      } catch {}
-    }
-
-    // Trigger meeting summarization
-    if (transcript.length > 0) {
-      setIsSummarizing(true);
-      try {
-        const fullTxt = transcript
-          .map(t => `${t.speaker}: ${t.text}`)
-          .join('\n');
-
-        const summary = await window.api.ai.summarizeMeeting(fullTxt);
-        setSummaryData(summary);
-
-        // Save meeting to disk
-        const currentBrainObj = brains.find(b => b.id === activeBrainId);
-        const record = {
-          id: 'meet_' + Date.now(),
-          brainId: activeBrainId,
-          brainName: currentBrainObj ? currentBrainObj.name : 'Unassigned',
-          title: `Meeting on ${new Date().toLocaleDateString()} - ${currentBrainObj?.name || 'Copilot'}`,
-          date: new Date().toISOString(),
-          duration: duration,
-          transcript: transcript.map(t => ({
-            role: t.role,
-            text: t.text,
-            translation: t.translation,
-            timestamp: t.timestamp
-          })),
-          summary: summary.summary,
-          actionItems: summary.actionItems,
-          decisions: summary.decisions
-        };
-        await window.api.meetings.save(record);
-      } catch (err) {
-        console.error('Failed to summarize meeting:', err);
-      } finally {
-        setIsSummarizing(false);
-      }
-    }
-  };
-
-  const toggleMic = () => {
-    setIsMicMuted(!isMicMuted);
-    if (recognitionRef.current) {
-      if (!isMicMuted) {
-        recognitionRef.current.stop();
-      } else {
-        if (isMeetingActive) {
-          try { recognitionRef.current.start(); } catch {}
-        }
-      }
-    }
-  };
-
-  /**
-   * Translates text and pushes finalized transcripts.
-   */
-  const handleFinalizedSpeech = async (role: 'buyer' | 'user', speaker: string, text: string) => {
-    const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    const id = 'line_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-    
-    // Add text immediately without translation first
-    const newLine: TranscriptLine = { id, role, speaker, text, timestamp };
+  // ── Add a line ──
+  const addSpeechLine = async (role: 'buyer' | 'user', speaker: string, text: string) => {
+    const id = uid();
+    const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const newLine: TranscriptLine = { id, role, speaker, text, timestamp, isTranslating: role === 'buyer' };
     setTranscript(prev => [...prev, newLine]);
 
-    // Fetch target language setting
-    let targetLanguage = 'hi';
-    try {
-      const settings = await window.api.settings.get();
-      targetLanguage = settings.targetLanguage || 'hi';
-    } catch {}
+    // Track word count
+    setWordCount(c => c + text.split(/\s+/).length);
 
-    // Translate asynchronously
-    try {
-      const translation = await window.api.ai.translate(text, targetLanguage);
-      setTranscript(prev => 
-        prev.map(line => line.id === id ? { ...line, translation } : line)
-      );
-    } catch (err) {
-      console.error('Translation failed:', err);
+    if (role === 'buyer') {
+      setLastBuyerText(text);
+      // Update meeting topic from buyer's speech
+      if (text.length > 15) {
+        const topicWords = text.split(' ').slice(0, 5).join(' ');
+        setMeetingTopic(topicWords + '...');
+      }
+      // Translate buyer speech
+      try {
+        let targetLang = 'hi';
+        if (window.api) {
+          const s = await window.api.settings.get();
+          targetLang = s?.targetLanguage || 'hi';
+        }
+        const translation = window.api
+          ? await window.api.ai.translate(text, targetLang)
+          : '[API key set karo Settings mein → Translation yahan dikhega]';
+        setTranscript(prev => prev.map(l => l.id === id ? { ...l, translation, isTranslating: false } : l));
+      } catch {
+        setTranscript(prev => prev.map(l => l.id === id ? { ...l, isTranslating: false } : l));
+      }
+      // Auto-trigger reply suggestions
+      await generateSuggestions(text, '');
     }
-
-    // Refresh reply suggestions immediately
-    triggerSuggestionsUpdate([...transcript, newLine]);
   };
 
-  /**
-   * Hits the RAG vector store and AI suggested reply endpoint
-   */
-  const triggerSuggestionsUpdate = async (currentTranscript: TranscriptLine[]) => {
+  // ── Generate AI Suggestions ──
+  const generateSuggestions = useCallback(async (buyerText: string, hintText: string) => {
     setIsSuggesting(true);
+    setSuggestions([]);
     try {
-      const snippet = currentTranscript
-        .slice(-4)
-        .map(t => `${t.speaker}: ${t.text}`)
-        .join('\n');
-
-      // 1. Perform RAG Vector Search in selected Client Brain
-      let vectorContext = '';
-      if (activeBrainId) {
-        vectorContext = await window.api.brains.search(activeBrainId, snippet + ' ' + hints);
+      const recentCtx = transcript.slice(-4).map(t => t.speaker + ': ' + t.text).join('\n');
+      let vectorCtx = '';
+      if (activeBrainId && window.api) {
+        vectorCtx = await window.api.brains.search(activeBrainId, buyerText + ' ' + hintText);
       }
-
-      // 2. Fetch reply suggestions from AI
-      const suggestedOptions = await window.api.ai.suggestReplies(snippet, vectorContext, hints);
-      setSuggestions(suggestedOptions);
-    } catch (err) {
-      console.error('Suggestions generation failed:', err);
+      const result = window.api
+        ? await window.api.ai.suggestReplies(recentCtx + '\nBuyer: ' + buyerText, vectorCtx, hintText)
+        : [
+            'Yes, I can definitely help with that!',
+            'Of course, let me work on that for you.',
+            'Great question! I can handle that within your timeline.',
+            'Sure! Let me share the details with you.',
+            'Absolutely, I have extensive experience with this.'
+          ];
+      setSuggestions(result || []);
+    } catch {
+      setSuggestions([
+        'Yes, I can do that!',
+        'Sure, let me help you with that.',
+        'Of course, no problem at all!',
+        'Absolutely, I can handle that.',
+        'Let me look into that for you.'
+      ]);
     } finally {
       setIsSuggesting(false);
     }
+  }, [transcript, activeBrainId]);
+
+  // ── Hint Debounce (instant suggestions as you type) ──
+  const handleHintChange = (value: string) => {
+    setHint(value);
+    if (hintDebounceRef.current) clearTimeout(hintDebounceRef.current);
+    if (value.trim().length > 3) {
+      hintDebounceRef.current = setTimeout(() => {
+        generateSuggestions(lastBuyerText || '', value.trim());
+      }, 800);
+    }
   };
 
-  const copyToClipboard = (text: string, index: number) => {
-    navigator.clipboard.writeText(text);
-    setCopiedIndex(index);
+  const handleHintSubmit = async () => {
+    if (!hint.trim()) return;
+    const h = hint.trim();
+    setHint('');
+    if (hintDebounceRef.current) clearTimeout(hintDebounceRef.current);
+    await generateSuggestions(lastBuyerText || '', h);
+  };
+
+  // ── Start / Stop ──
+  const startMeeting = () => {
+    setIsActive(true);
+    setTranscript([]);
+    setInterimText('');
+    setSuggestions([]);
+    setLastBuyerText('');
+    setDuration(0);
+    setWordCount(0);
+    setMeetingTopic('');
+    timerRef.current = setInterval(() => setDuration(d => d + 1), 1000);
+    if (audioSource === 'mic' && recognitionRef.current && !isMicMuted) {
+      try { recognitionRef.current.start(); } catch {}
+    }
+  };
+
+  const stopMeeting = () => {
+    setIsActive(false);
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (recognitionRef.current) try { recognitionRef.current.stop(); } catch {}
+    
+    // Stop loopback capture
+    if (loopbackIntervalRef.current) clearInterval(loopbackIntervalRef.current);
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try { mediaRecorderRef.current.stop(); } catch {}
+    }
+    if (loopbackStreamRef.current) {
+      loopbackStreamRef.current.getTracks().forEach(t => t.stop());
+      loopbackStreamRef.current = null;
+    }
+    setInterimText('');
+  };
+
+  const toggleMic = () => {
+    const next = !isMicMuted;
+    setIsMicMuted(next);
+    if (recognitionRef.current) {
+      if (next) try { recognitionRef.current.stop(); } catch {}
+      else if (isActive) try { recognitionRef.current.start(); } catch {}
+    }
+  };
+
+  const copyToClipboard = (text: string, idx: number) => {
+    navigator.clipboard.writeText(text).catch(() => {});
+    setCopiedIndex(idx);
     setTimeout(() => setCopiedIndex(null), 2000);
   };
 
-  // Mock buyer questions simulation for demoing
-  const simulateBuyerQuestion = () => {
-    if (!isMeetingActive) {
-      startMeeting();
-    }
-    const questions = [
+  const speakText = (text: string) => {
+    window.speechSynthesis.cancel();
+    const utt = new SpeechSynthesisUtterance(text);
+    utt.lang = 'en-US';
+    const voices = window.speechSynthesis.getVoices();
+    const v = voices.find(v => v.lang.startsWith('en') && v.name.includes('Google')) || voices.find(v => v.lang.startsWith('en'));
+    if (v) utt.voice = v;
+    utt.rate = 0.92;
+    window.speechSynthesis.speak(utt);
+  };
+
+  const speakQuickPhrase = (text: string) => {
+    speakText(text);
+    navigator.clipboard.writeText(text).catch(() => {});
+  };
+
+  // Simulate demo buyer
+  const simulateBuyer = () => {
+    if (!isActive) startMeeting();
+    const qs = [
       "Can you finish the website redesign by Friday?",
-      "Can you deliver it in 3 days? What is the budget?",
-      "Do we need a dedicated server for this AI automation or will a basic hosting work?",
-      "How do we handle the Google AdSense integration? Have you done this on WordPress before?"
+      "What's your rate for a full e-commerce store?",
+      "Do you have experience with WordPress and WooCommerce?",
+      "How long will the SEO optimization take to show results?",
+      "Can you also handle the mobile version of the app?"
     ];
-    const randomQ = questions[Math.floor(Math.random() * questions.length)];
-    
-    // Simulate Buyer text appearing
     setTimeout(() => {
-      handleFinalizedSpeech('buyer', 'Buyer', randomQ);
+      addSpeechLine('buyer', 'Buyer', qs[Math.floor(Math.random() * qs.length)]);
     }, 400);
   };
 
-  const formatTime = (secs: number) => {
-    const m = Math.floor(secs / 60).toString().padStart(2, '0');
-    const s = (secs % 60).toString().padStart(2, '0');
-    return `${m}:${s}`;
-  };
-
-  const activeBrainObj = brains.find(b => b.id === activeBrainId);
-
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden p-6 gap-6">
-      {/* Top action header bar */}
-      <header className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-bold text-white font-display flex items-center gap-2">
-            Meeting AI Assistant
-            <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
-          </h2>
-          <p className="text-xs text-zinc-500">Real-time transcription, dual captions, client brain integration</p>
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', padding: '16px 20px', gap: 12, boxSizing: 'border-box' }}>
+
+      {/* ── Header Bar ── */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{
+            width: 32, height: 32, borderRadius: 9,
+            background: isActive ? 'linear-gradient(135deg, #ef4444, #dc2626)' : 'linear-gradient(135deg, #7c3aed, #4f46e5)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            boxShadow: isActive ? '0 0 18px rgba(239,68,68,0.45)' : '0 0 18px rgba(124,58,237,0.45)',
+            transition: 'all 0.3s ease'
+          }}>
+            <Mic style={{ width: 15, height: 15, color: '#fff' }} />
+          </div>
+          <div>
+            <h2 style={{ fontSize: '1rem', fontWeight: 800, color: '#f4f4f5', margin: 0, letterSpacing: '-0.03em', display: 'flex', alignItems: 'center', gap: 8 }}>
+              Meeting AI Copilot
+              {isActive && (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: '0.6rem', background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.35)', color: '#f87171', borderRadius: 999, padding: '2px 8px', fontWeight: 700, letterSpacing: '0.08em', animation: 'pulse 2s infinite' }}>
+                  <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#ef4444', display: 'inline-block' }} />
+                  LIVE · {fmtTime(duration)}
+                </span>
+              )}
+            </h2>
+            <p style={{ fontSize: '0.68rem', color: '#52525b', margin: '2px 0 0 0' }}>
+              {isActive
+                ? (meetingTopic ? 'Topic: ' + meetingTopic + ' · ' : '') + wordCount + ' words captured'
+                : 'Real-time English→Hindi · AI Reply Suggestions · Voice-assisted'}
+            </p>
+          </div>
         </div>
 
-        <div className="flex items-center gap-4">
-          {/* Client Brain Selector */}
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] uppercase font-semibold text-zinc-500 tracking-wider">Active Brain</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {brains.length > 0 && (
             <select
               value={activeBrainId}
-              onChange={(e) => setActiveBrainId(e.target.value)}
-              className="bg-zinc-900 border border-zinc-800 text-xs text-zinc-300 rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-500"
-              disabled={isMeetingActive}
+              onChange={e => setActiveBrainId(e.target.value)}
+              disabled={isActive}
+              style={{ background: 'rgba(9,9,11,0.9)', border: '1px solid rgba(63,63,70,0.7)', color: '#d4d4d8', fontSize: '0.72rem', borderRadius: 8, padding: '5px 8px', outline: 'none', cursor: 'pointer', maxWidth: 130 }}
             >
-              {brains.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                </option>
-              ))}
-              {brains.length === 0 && <option value="">No Brains Configured</option>}
+              {brains.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
+          )}
+          <div style={{ display: 'flex', background: 'rgba(9,9,11,0.9)', border: '1px solid rgba(63,63,70,0.7)', borderRadius: 8, padding: 2, marginRight: 2 }}>
+            <button
+              onClick={() => setAudioSource('mic')}
+              disabled={isActive}
+              style={{
+                padding: '4px 8px',
+                borderRadius: 5,
+                border: 'none',
+                background: audioSource === 'mic' ? 'rgba(99,102,241,0.2)' : 'transparent',
+                color: audioSource === 'mic' ? '#a5b4fc' : '#71717a',
+                fontSize: '0.68rem',
+                fontWeight: 600,
+                cursor: isActive ? 'not-allowed' : 'pointer',
+                transition: 'all 0.2s'
+              }}
+              title="Mic select karein physically bolne ke liye"
+            >
+              🎤 Mic
+            </button>
+            <button
+              onClick={() => setAudioSource('zoom')}
+              disabled={isActive}
+              style={{
+                padding: '4px 8px',
+                borderRadius: 5,
+                border: 'none',
+                background: audioSource === 'zoom' ? 'rgba(99,102,241,0.2)' : 'transparent',
+                color: audioSource === 'zoom' ? '#a5b4fc' : '#71717a',
+                fontSize: '0.68rem',
+                fontWeight: 600,
+                cursor: isActive ? 'not-allowed' : 'pointer',
+                transition: 'all 0.2s'
+              }}
+              title="Zoom select karein buyer ki digital voice direct capture karne ke liye"
+            >
+              💻 Zoom Audio
+            </button>
           </div>
-
-          {/* Simulate Client button */}
-          <button
-            onClick={simulateBuyerQuestion}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-zinc-200 transition"
-          >
-            <Plus className="w-3.5 h-3.5 text-indigo-400" />
-            Simulate Buyer Question
+          <button onClick={simulateBuyer} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 8, padding: '5px 10px', cursor: 'pointer', color: '#a5b4fc', fontSize: '0.72rem', fontWeight: 600 }}>
+            <Zap style={{ width: 12, height: 12 }} /> Demo
           </button>
-        </div>
-      </header>
 
-      {/* Main split dashboard panels */}
-      <div className="flex-1 flex gap-6 overflow-hidden min-h-0">
-        
-        {/* Left Side: Real-time Transcript & Dual Captions */}
-        <div className="flex-1 glass-card rounded-2xl flex flex-col overflow-hidden">
-          {/* Header */}
-          <div className="px-5 py-4 border-b border-zinc-800/60 bg-zinc-900/30 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Mic className="w-4 h-4 text-zinc-500" />
-              <span className="text-xs font-semibold text-zinc-300">Live Transcript & Captions</span>
+          {!isActive ? (
+            <button onClick={startMeeting} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'linear-gradient(135deg, #7c3aed, #4f46e5)', boxShadow: '0 0 18px rgba(124,58,237,0.4)', border: 'none', borderRadius: 10, padding: '7px 16px', cursor: 'pointer', color: '#fff', fontSize: '0.78rem', fontWeight: 700 }}>
+              <Play style={{ width: 13, height: 13 }} /> Start Meeting
+            </button>
+          ) : (
+            <div style={{ display: 'flex', gap: 5 }}>
+              <button onClick={toggleMic} style={{ display: 'flex', alignItems: 'center', gap: 4, background: isMicMuted ? 'rgba(239,68,68,0.15)' : 'rgba(99,102,241,0.12)', border: isMicMuted ? '1px solid rgba(239,68,68,0.35)' : '1px solid rgba(99,102,241,0.25)', borderRadius: 9, padding: '6px 10px', cursor: 'pointer', color: isMicMuted ? '#f87171' : '#a5b4fc', fontSize: '0.72rem', fontWeight: 600 }}>
+                {isMicMuted ? <MicOff style={{ width: 12, height: 12 }} /> : <Mic style={{ width: 12, height: 12 }} />}
+                {isMicMuted ? 'Unmute' : 'Mute'}
+              </button>
+              <button onClick={stopMeeting} style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.35)', borderRadius: 9, padding: '6px 12px', cursor: 'pointer', color: '#f87171', fontSize: '0.72rem', fontWeight: 700 }}>
+                <Square style={{ width: 12, height: 12 }} /> End
+              </button>
             </div>
+          )}
+        </div>
+      </div>
 
-            {isMeetingActive && (
-              <div className="flex items-center gap-3">
-                {/* Audio visualizer simulation */}
-                <div className="flex items-end gap-[2px] h-3.5 w-12">
-                  <div className="w-[3px] bg-indigo-500 rounded-full transition-all" style={{ height: `${audioLevel * 0.8}%` }} />
-                  <div className="w-[3px] bg-indigo-400 rounded-full transition-all" style={{ height: `${audioLevel * 0.4}%` }} />
-                  <div className="w-[3px] bg-indigo-500 rounded-full transition-all" style={{ height: `${audioLevel * 0.9}%` }} />
-                  <div className="w-[3px] bg-indigo-600 rounded-full transition-all" style={{ height: `${audioLevel * 0.5}%` }} />
-                </div>
-                
-                <span className="text-xs font-mono text-zinc-400">{formatTime(duration)}</span>
-              </div>
-            )}
+      {/* ── SPEAKER MODE TOGGLE ── */}
+      {isActive && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, background: 'rgba(9,9,11,0.6)', border: '1px solid rgba(63,63,70,0.5)', borderRadius: 10, padding: '6px 10px' }}>
+          <span style={{ fontSize: '0.65rem', fontWeight: 600, color: '#52525b', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Listening:</span>
+          {(['buyer', 'me'] as const).map(mode => (
+            <button key={mode} onClick={() => setSpeakerMode(mode)} style={{
+              display: 'flex', alignItems: 'center', gap: 5, padding: '4px 12px', borderRadius: 7, cursor: 'pointer', fontWeight: 600, fontSize: '0.72rem', transition: 'all 0.2s',
+              background: speakerMode === mode ? (mode === 'buyer' ? 'rgba(99,102,241,0.2)' : 'rgba(16,185,129,0.15)') : 'transparent',
+              border: speakerMode === mode ? (mode === 'buyer' ? '1px solid rgba(99,102,241,0.4)' : '1px solid rgba(16,185,129,0.3)') : '1px solid transparent',
+              color: speakerMode === mode ? (mode === 'buyer' ? '#a5b4fc' : '#6ee7b7') : '#52525b'
+            }}>
+              {mode === 'buyer' ? <Globe style={{ width: 12, height: 12 }} /> : <Mic style={{ width: 12, height: 12 }} />}
+              {mode === 'buyer' ? 'Buyer (English→Hindi)' : 'Me (Reply mode)'}
+            </button>
+          ))}
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <LiveBars active={isActive && !isMicMuted} />
+            <span style={{ fontSize: '0.62rem', color: '#3f3f46' }}>
+              {isActive && !isMicMuted ? (speakerMode === 'buyer' ? 'Buyer voice capturing...' : 'Listening your reply...') : 'Muted'}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* ── Main 2-panel layout ── */}
+      <div style={{ flex: 1, display: 'flex', gap: 12, overflow: 'hidden', minHeight: 0 }}>
+
+        {/* ── LEFT: Transcript + Translation ── */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'rgba(9,9,11,0.6)', border: '1px solid rgba(63,63,70,0.5)', borderRadius: 14, overflow: 'hidden' }}>
+          <div style={{ padding: '8px 14px', borderBottom: '1px solid rgba(63,63,70,0.4)', background: 'rgba(255,255,255,0.02)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+              <Languages style={{ width: 13, height: 13, color: '#a78bfa' }} />
+              <span style={{ fontSize: '0.74rem', fontWeight: 700, color: '#d4d4d8' }}>Live Transcript & Translation</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: '0.62rem', color: '#52525b', fontFamily: 'monospace' }}>EN → HI</span>
+              {isActive && <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981', display: 'inline-block', boxShadow: '0 0 6px #10b981', animation: 'pulse 2s infinite' }} />}
+            </div>
           </div>
 
-          {/* Transcript Scroll Area */}
-          <div 
-            ref={scrollRef}
-            className="flex-1 p-5 overflow-y-auto flex flex-col gap-4 min-h-0 bg-zinc-950/20"
-          >
-            {transcript.length === 0 && !interimText && (
-              <div className="flex-1 flex flex-col items-center justify-center text-center gap-2">
-                <div className="w-12 h-12 rounded-full bg-zinc-900 flex items-center justify-center text-zinc-500">
-                  <MicOff className="w-5 h-5" />
+          <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {transcript.length === 0 && !isActive && (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 14, padding: 28 }}>
+                <div style={{ width: 48, height: 48, borderRadius: 13, background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Mic style={{ width: 20, height: 20, color: '#6366f1' }} />
                 </div>
-                <h3 className="text-sm font-semibold text-zinc-400">Assistant Idle</h3>
-                <p className="text-xs text-zinc-650 max-w-[280px]">
-                  Click "Start Meeting" and speak. If you don't have a mic, click "Simulate Buyer Question" above to see the copilot in action!
-                </p>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#71717a', marginBottom: 6 }}>Zoom Meeting ke liye Ready!</div>
+                  <div style={{ fontSize: '0.7rem', color: '#3f3f46', lineHeight: 1.7 }}>
+                    <strong style={{ color: '#a5b4fc' }}>Start Meeting</strong> dabao, phir Zoom chalao.<br/>
+                    Buyer ki English speech → Hindi mein translate hogi live.<br/>
+                    AI automatically reply suggest karega English mein.<br/>
+                    <span style={{ color: '#52525b' }}>Ctrl+1/2/3/4/5 se suggestion turant copy karo!</span>
+                  </div>
+                </div>
+                <button onClick={simulateBuyer} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.25)', borderRadius: 8, padding: '8px 16px', cursor: 'pointer', color: '#a5b4fc', fontSize: '0.73rem', fontWeight: 600, marginTop: 4 }}>
+                  <Zap style={{ width: 12, height: 12 }} /> Try Demo — Buyer Simulate karo
+                </button>
               </div>
             )}
 
-            {/* Render completed transcript rows */}
-            {transcript.map((line) => (
-              <div 
-                key={line.id} 
-                className={`flex gap-3 text-xs max-w-[85%] ${
-                  line.role === 'buyer' ? 'self-start' : 'self-end flex-row-reverse text-right'
-                }`}
-              >
-                <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${
-                  line.role === 'buyer' ? 'bg-indigo-950/80 text-indigo-400' : 'bg-emerald-950/80 text-emerald-400'
-                }`}>
-                  {line.role === 'buyer' ? <User className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
+            {transcript.length === 0 && isActive && (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: 28 }}>
+                <LiveBars active={true} />
+                <div style={{ fontSize: '0.76rem', color: '#52525b', textAlign: 'center' }}>
+                  {speakerMode === 'buyer' ? 'Buyer ki voice sun raha hai...' : 'Aapki reply sun raha hai...'}
+                  <br/><span style={{ fontSize: '0.66rem', color: '#3f3f46' }}>Mic ke paas clearly bolo</span>
                 </div>
+              </div>
+            )}
 
-                <div className="flex flex-col gap-1">
-                  <div className="flex items-center gap-2 text-[10px] text-zinc-500">
-                    <span className="font-bold text-zinc-400">{line.speaker}</span>
-                    <span>•</span>
-                    <span>{line.timestamp}</span>
+            {transcript.map((line) => (
+              <div key={line.id} style={{
+                display: 'flex', flexDirection: 'column', gap: 5,
+                alignSelf: line.role === 'user' ? 'flex-end' : 'flex-start',
+                maxWidth: '88%',
+                animation: 'slideUp 0.25s ease'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, justifyContent: line.role === 'user' ? 'flex-end' : 'flex-start' }}>
+                  <div style={{ width: 15, height: 15, borderRadius: '50%', background: line.role === 'buyer' ? 'rgba(99,102,241,0.3)' : 'rgba(16,185,129,0.25)', border: line.role === 'buyer' ? '1px solid rgba(99,102,241,0.5)' : '1px solid rgba(16,185,129,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    {line.role === 'buyer' ? <Globe style={{ width: 7, height: 7, color: '#818cf8' }} /> : <User style={{ width: 7, height: 7, color: '#6ee7b7' }} />}
                   </div>
-                  
-                  {/* Speech bubble */}
-                  <div className={`p-3 rounded-xl border ${
-                    line.role === 'buyer' 
-                      ? 'bg-zinc-900/60 border-zinc-800 text-zinc-200 rounded-tl-none' 
-                      : 'bg-emerald-900/10 border-emerald-900/20 text-emerald-100 rounded-tr-none'
-                  }`}>
-                    {/* Dual captions: Original Speech */}
-                    <p className="font-medium text-xs leading-relaxed">{line.text}</p>
-                    
-                    {/* Dual captions: Translation */}
-                    {line.translation && (
-                      <div className="mt-2 pt-2 border-t border-zinc-850 flex items-start gap-1.5 text-zinc-400 text-xs italic">
-                        <Globe className="w-3.5 h-3.5 shrink-0 text-zinc-500 mt-[2px]" />
-                        <span>{line.translation}</span>
-                      </div>
-                    )}
-                  </div>
+                  <span style={{ fontSize: '0.62rem', fontWeight: 700, color: line.role === 'buyer' ? '#818cf8' : '#6ee7b7', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{line.speaker}</span>
+                  <span style={{ fontSize: '0.58rem', color: '#3f3f46' }}>{line.timestamp}</span>
+                </div>
+                <div style={{
+                  background: line.role === 'buyer' ? 'rgba(18,18,32,0.8)' : 'rgba(16,185,129,0.08)',
+                  border: line.role === 'buyer' ? '1px solid rgba(99,102,241,0.18)' : '1px solid rgba(16,185,129,0.2)',
+                  borderRadius: line.role === 'user' ? '13px 4px 13px 13px' : '4px 13px 13px 13px',
+                  padding: '9px 13px', display: 'flex', flexDirection: 'column', gap: 7
+                }}>
+                  <p style={{ fontSize: '0.82rem', color: '#e4e4e7', margin: 0, lineHeight: 1.5 }}>{line.text}</p>
+                  {line.role === 'buyer' && (
+                    <div style={{ borderTop: '1px solid rgba(99,102,241,0.12)', paddingTop: 6 }}>
+                      {line.isTranslating ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <Loader2 style={{ width: 11, height: 11, color: '#6366f1', animation: 'spin 0.8s linear infinite' }} />
+                          <span style={{ fontSize: '0.66rem', color: '#52525b' }}>Hindi mein translate ho raha hai...</span>
+                        </div>
+                      ) : line.translation ? (
+                        <div style={{ display: 'flex', gap: 7, alignItems: 'flex-start' }}>
+                          <div style={{ background: 'rgba(99,102,241,0.15)', borderRadius: 4, padding: '1px 5px', fontSize: '0.54rem', fontWeight: 700, color: '#818cf8', letterSpacing: '0.06em', textTransform: 'uppercase', flexShrink: 0, marginTop: 2 }}>HI</div>
+                          <p style={{ fontSize: '0.79rem', color: '#a5b4fc', margin: 0, lineHeight: 1.55, fontFamily: "'Noto Sans Devanagari', 'Mangal', sans-serif" }}>{line.translation}</p>
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
 
-            {/* Interim Transcript text (Live feedback) */}
             {interimText && (
-              <div className="flex gap-3 text-xs max-w-[85%] self-end flex-row-reverse text-right opacity-60">
-                <div className="w-7 h-7 rounded-full bg-emerald-950/80 text-emerald-400 flex items-center justify-center shrink-0">
-                  <Mic className="w-3.5 h-3.5 animate-pulse" />
+              <div style={{ alignSelf: speakerMode === 'me' ? 'flex-end' : 'flex-start', maxWidth: '88%' }}>
+                <div style={{ background: 'rgba(18,18,28,0.6)', border: '1px dashed rgba(63,63,70,0.5)', borderRadius: 11, padding: '7px 13px' }}>
+                  <p style={{ fontSize: '0.78rem', color: '#52525b', margin: 0, fontStyle: 'italic' }}>{interimText}...</p>
                 </div>
-                <div className="flex flex-col gap-1">
-                  <span className="text-[10px] text-zinc-500 font-bold">Me (speaking...)</span>
-                  <div className="p-3 rounded-xl border bg-emerald-900/5 border-emerald-950/10 text-emerald-200/80 rounded-tr-none font-medium italic">
-                    {interimText}
-                  </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── RIGHT: AI Suggestions + Hint + Quick Phrases ── */}
+        <div style={{ width: 310, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
+
+          {/* ── Quick Phrase Bar ── */}
+          <div style={{ background: 'rgba(9,9,11,0.7)', border: '1px solid rgba(63,63,70,0.5)', borderRadius: 12, overflow: 'hidden', flexShrink: 0 }}>
+            <button
+              onClick={() => setShowQuickPhrases(!showQuickPhrases)}
+              style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, padding: '8px 12px', background: 'none', border: 'none', cursor: 'pointer', color: '#d4d4d8' }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Zap style={{ width: 12, height: 12, color: '#fbbf24' }} />
+                <span style={{ fontSize: '0.7rem', fontWeight: 700 }}>Quick Phrases</span>
+                <span style={{ fontSize: '0.58rem', color: '#52525b' }}>Click to speak instantly</span>
+              </div>
+              <ChevronDown style={{ width: 12, height: 12, color: '#52525b', transition: 'transform 0.2s', transform: showQuickPhrases ? 'rotate(180deg)' : 'none' }} />
+            </button>
+            {showQuickPhrases && (
+              <div style={{ padding: '0 10px 10px', animation: 'slideUp 0.2s ease' }}>
+                <div style={{ display: 'flex', gap: 4, marginBottom: 8, flexWrap: 'wrap' }}>
+                  {QUICK_PHRASES.map(qp => (
+                    <button key={qp.cat} onClick={() => setActiveQuickCat(qp.cat)} style={{
+                      padding: '3px 8px', borderRadius: 5, fontSize: '0.6rem', fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s',
+                      background: activeQuickCat === qp.cat ? 'rgba(124,58,237,0.2)' : 'transparent',
+                      border: activeQuickCat === qp.cat ? '1px solid rgba(124,58,237,0.4)' : '1px solid rgba(63,63,70,0.4)',
+                      color: activeQuickCat === qp.cat ? '#a78bfa' : '#52525b'
+                    }}>{qp.cat}</button>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {QUICK_PHRASES.find(q => q.cat === activeQuickCat)?.phrases.map((ph, i) => (
+                    <button key={i} onClick={() => speakQuickPhrase(ph)} style={{
+                      display: 'flex', alignItems: 'center', gap: 6, padding: '6px 9px', borderRadius: 7,
+                      background: 'rgba(14,14,22,0.6)', border: '1px solid rgba(63,63,70,0.4)',
+                      cursor: 'pointer', color: '#d4d4d8', fontSize: '0.72rem', textAlign: 'left',
+                      transition: 'all 0.15s', width: '100%'
+                    }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = 'rgba(99,102,241,0.4)'; (e.currentTarget as HTMLElement).style.background = 'rgba(99,102,241,0.08)'; }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'rgba(63,63,70,0.4)'; (e.currentTarget as HTMLElement).style.background = 'rgba(14,14,22,0.6)'; }}
+                    >
+                      <Volume2 style={{ width: 10, height: 10, color: '#6ee7b7', flexShrink: 0 }} />
+                      <span style={{ flex: 1 }}>{ph}</span>
+                      <Copy style={{ width: 9, height: 9, color: '#3f3f46', flexShrink: 0 }} />
+                    </button>
+                  ))}
                 </div>
               </div>
             )}
           </div>
 
-          {/* Controls Footer */}
-          <footer className="px-5 py-4 border-t border-zinc-850 bg-zinc-900/30 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              {isMeetingActive ? (
-                <button
-                  onClick={stopMeeting}
-                  className="flex items-center gap-2 px-5 py-2 rounded-lg text-xs font-semibold bg-red-650 hover:bg-red-750 text-white shadow-md transition"
-                >
-                  <Square className="w-3.5 h-3.5" />
-                  End & Save Meeting
-                </button>
-              ) : (
-                <button
-                  onClick={startMeeting}
-                  className="flex items-center gap-2 px-5 py-2 rounded-lg text-xs font-semibold grad-btn text-white shadow-md transition"
-                >
-                  <Play className="w-3.5 h-3.5" />
-                  Start Meeting Assistant
-                </button>
-              )}
-
-              {isMeetingActive && (
-                <button
-                  onClick={toggleMic}
-                  className={`p-2.5 rounded-lg border transition ${
-                    isMicMuted 
-                      ? 'bg-red-950/30 border-red-900/40 text-red-400 hover:bg-red-950/50' 
-                      : 'bg-zinc-850 border-zinc-750 text-zinc-400 hover:text-zinc-200'
-                  }`}
-                  title={isMicMuted ? 'Unmute Mic' : 'Mute Mic'}
-                >
-                  {isMicMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-                </button>
-              )}
+          {/* ── Hint Box ── */}
+          <div style={{ background: 'rgba(9,9,11,0.7)', border: '1px solid rgba(63,63,70,0.5)', borderRadius: 12, overflow: 'hidden', flexShrink: 0 }}>
+            <div style={{ padding: '8px 12px', borderBottom: '1px solid rgba(63,63,70,0.35)', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Lightbulb style={{ width: 12, height: 12, color: '#fbbf24' }} />
+              <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#d4d4d8' }}>Hint Box</span>
+              <span style={{ fontSize: '0.58rem', color: '#52525b' }}>Hindi/English/Hinglish — instant suggest</span>
             </div>
-
-            <div className="text-[10px] text-zinc-600 flex items-center gap-1.5">
-              {!speechSupported && (
-                <span className="text-yellow-500">Web Speech API not supported in this environment</span>
-              )}
-              {speechSupported && (
-                <>
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                  <span>Speech Recognizer Ready</span>
-                </>
-              )}
+            <div style={{ padding: '8px 10px', display: 'flex', gap: 6 }}>
+              <textarea
+                ref={hintRef}
+                value={hint}
+                onChange={e => handleHintChange(e.target.value)}
+                placeholder={"Hint do... jaise: 'haan 3 din mein ho jayega' ya 'price 500 dollar hai'"}
+                rows={2}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleHintSubmit(); } }}
+                style={{
+                  flex: 1, background: 'rgba(9,9,11,0.8)', border: '1px solid rgba(63,63,70,0.6)',
+                  borderRadius: 8, padding: '7px 9px', fontSize: '0.73rem', color: '#e4e4e7',
+                  resize: 'none', outline: 'none', lineHeight: 1.4,
+                  fontFamily: 'inherit', boxSizing: 'border-box'
+                }}
+                onFocus={e => { e.target.style.borderColor = 'rgba(99,102,241,0.5)'; }}
+                onBlur={e => { e.target.style.borderColor = 'rgba(63,63,70,0.6)'; }}
+              />
+              <button
+                onClick={handleHintSubmit}
+                disabled={!hint.trim()}
+                style={{
+                  width: 34, height: 34, alignSelf: 'flex-end', borderRadius: 8, border: 'none',
+                  background: hint.trim() ? 'linear-gradient(135deg, #7c3aed, #4f46e5)' : 'rgba(63,63,70,0.3)',
+                  cursor: hint.trim() ? 'pointer' : 'not-allowed',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  flexShrink: 0, boxShadow: hint.trim() ? '0 0 10px rgba(124,58,237,0.4)' : 'none',
+                  transition: 'all 0.2s'
+                }}
+              >
+                <Send style={{ width: 13, height: 13, color: hint.trim() ? '#fff' : '#52525b' }} />
+              </button>
             </div>
-          </footer>
-        </div>
+          </div>
 
-        {/* Right Side: AI Reply Suggestions & Brain Context */}
-        <div className="w-[380px] flex flex-col gap-6 shrink-0 min-h-0">
-          
-          {/* Suggested Replies Panel */}
-          <div className="flex-1 glass-card rounded-2xl flex flex-col overflow-hidden">
-            {/* Header */}
-            <div className="px-5 py-4 border-b border-zinc-800/60 bg-zinc-900/30 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-indigo-400" />
-                <span className="text-xs font-semibold text-zinc-300">Contextual AI Suggestions</span>
+          {/* ── AI Suggestions Panel ── */}
+          <div style={{ flex: 1, background: 'rgba(9,9,11,0.7)', border: '1px solid rgba(63,63,70,0.5)', borderRadius: 12, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ padding: '8px 12px', borderBottom: '1px solid rgba(63,63,70,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Sparkles style={{ width: 12, height: 12, color: '#a78bfa' }} />
+                <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#d4d4d8' }}>AI Reply Suggestions</span>
               </div>
-              
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: '0.56rem', color: '#3f3f46', fontFamily: 'monospace' }}>Ctrl+1-5 to copy</span>
+                {lastBuyerText && (
+                  <button onClick={() => generateSuggestions(lastBuyerText, '')} disabled={isSuggesting} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#52525b', display: 'flex', alignItems: 'center', gap: 3, fontSize: '0.62rem', padding: '2px 4px' }} title="Refresh suggestions">
+                    <RefreshCw style={{ width: 10, height: 10, animation: isSuggesting ? 'spin 0.8s linear infinite' : 'none' }} />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div style={{ flex: 1, overflowY: 'auto', padding: '10px', display: 'flex', flexDirection: 'column', gap: 8 }}>
               {isSuggesting && (
-                <RotateCw className="w-3.5 h-3.5 text-indigo-400 animate-spin" />
-              )}
-            </div>
-
-            {/* Suggestions cards list */}
-            <div className="flex-1 p-5 overflow-y-auto flex flex-col gap-4 bg-zinc-950/20">
-              {suggestions.length === 0 ? (
-                <div className="flex-1 flex flex-col items-center justify-center text-center gap-2">
-                  <div className="w-10 h-10 rounded-full bg-zinc-900/80 flex items-center justify-center text-indigo-400/60">
-                    <Sparkles className="w-4 h-4" />
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, padding: 16 }}>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    {[0,1,2].map(i => (
+                      <div key={i} style={{ width: 7, height: 7, borderRadius: '50%', background: '#7c3aed', animation: 'pulse 1.2s ease-in-out ' + (i * 0.15) + 's infinite' }} />
+                    ))}
                   </div>
-                  <h4 className="text-xs font-semibold text-zinc-400">Suggestions Waiting</h4>
-                  <p className="text-[10px] text-zinc-650 max-w-[200px]">
-                    Once transcript lines start compiling, AI will generate replies contextually from "{activeBrainObj?.name || 'Client'}" brain.
-                  </p>
+                  <span style={{ fontSize: '0.7rem', color: '#52525b' }}>AI reply generate kar raha hai...</span>
                 </div>
-              ) : (
-                suggestions.map((option, idx) => (
-                  <div 
-                    key={idx}
-                    className="glass-card rounded-xl p-4 border border-zinc-800/50 flex flex-col gap-3 relative hover:border-zinc-700/60"
-                  >
-                    {/* Header bar of suggestion card */}
-                    <div className="flex items-center justify-between">
-                      <span className="text-[9px] uppercase tracking-wider font-semibold text-indigo-400 bg-indigo-950/40 px-2 py-0.5 rounded border border-indigo-900/30">
-                        Option {idx + 1}
-                      </span>
-                      <button
-                        onClick={() => copyToClipboard(option, idx)}
-                        className="text-zinc-500 hover:text-zinc-300 p-1 hover:bg-zinc-800 rounded transition"
-                        title="Copy suggestion"
-                      >
-                        {copiedIndex === idx ? (
-                          <Check className="w-3.5 h-3.5 text-emerald-500" />
-                        ) : (
-                          <Clipboard className="w-3.5 h-3.5" />
-                        )}
-                      </button>
+              )}
+
+              {!isSuggesting && suggestions.length === 0 && (
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, padding: 16 }}>
+                  <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <MessageSquare style={{ width: 16, height: 16, color: '#4f46e5' }} />
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '0.72rem', color: '#52525b', lineHeight: 1.6 }}>
+                      Jab buyer bolega, AI automatically<br/>professional English reply suggest karega
                     </div>
-
-                    <p className="text-xs text-zinc-300 leading-relaxed font-medium">"{option}"</p>
+                    <div style={{ fontSize: '0.64rem', color: '#3f3f46', marginTop: 4 }}>
+                      Ya Hint Box mein apna idea likho (Hindi/English)
+                    </div>
                   </div>
-                ))
-              )}
-            </div>
-
-            {/* Steering Hint Bar */}
-            <div className="p-4 border-t border-zinc-850 bg-zinc-900/40 flex flex-col gap-2">
-              <label className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">
-                <Keyboard className="w-3 h-3 text-zinc-600" />
-                Steering Hint Words
-              </label>
-
-              {transcript.length > 0 && getKeywordTags().length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mb-1" style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '6px' }}>
-                  {getKeywordTags().map((tag, i) => (
-                    <button
-                      key={i}
-                      onClick={() => {
-                        const newHints = hints ? `${hints}, ${tag}` : tag;
-                        setHints(newHints);
-                      }}
-                      className="px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800 text-[10px] text-zinc-400 hover:text-indigo-400 transition"
-                      style={{ cursor: 'pointer', padding: '2px 6px', border: '1px solid #27272a', borderRadius: '4px', fontSize: '10px', backgroundColor: '#09090b', color: '#a1a1aa' }}
-                    >
-                      +{tag}
-                    </button>
-                  ))}
                 </div>
               )}
-              
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder="e.g. Mention WordPress, Fiverr delivery..."
-                  value={hints}
-                  onChange={(e) => setHints(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      triggerSuggestionsUpdate(transcript);
-                    }
-                  }}
-                  className="flex-1 bg-zinc-950 border border-zinc-800 text-xs rounded-lg px-3 py-2 text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-indigo-500"
-                />
-                <button
-                  onClick={() => triggerSuggestionsUpdate(transcript)}
-                  disabled={isSuggesting}
-                  className="px-3 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-semibold text-zinc-300 border border-zinc-700/30 transition disabled:opacity-50"
-                >
-                  Apply
-                </button>
-              </div>
+
+              {!isSuggesting && suggestions.map((s, i) => (
+                <SuggestionCard key={i} text={s} index={i} isCopied={copiedIndex === i} onCopy={copyToClipboard} onSpeak={speakText} />
+              ))}
             </div>
+          </div>
+
+          {/* ── Shortcut Helper (tiny footer) ── */}
+          <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '4px 0' }}>
+            <span style={{ fontSize: '0.56rem', color: '#27272a', display: 'flex', alignItems: 'center', gap: 3 }}>
+              <Keyboard style={{ width: 9, height: 9 }} /> Ctrl+1-5 copy
+            </span>
+            <span style={{ fontSize: '0.56rem', color: '#27272a' }}>·</span>
+            <span style={{ fontSize: '0.56rem', color: '#27272a', display: 'flex', alignItems: 'center', gap: 3 }}>
+              Click card = speak
+            </span>
+            <span style={{ fontSize: '0.56rem', color: '#27272a' }}>·</span>
+            <span style={{ fontSize: '0.56rem', color: '#27272a', display: 'flex', alignItems: 'center', gap: 3 }}>
+              Enter = send hint
+            </span>
           </div>
         </div>
       </div>
 
-      {/* Summary report overlay card when meeting concludes */}
-      {summaryData && (
-        <div className="glass-card rounded-2xl border border-indigo-900/40 p-5 bg-zinc-950/65 flex flex-col gap-4">
-          <div className="flex items-center justify-between border-b border-zinc-800/80 pb-3">
-            <div className="flex items-center gap-2">
-              <FileText className="w-5 h-5 text-indigo-400" />
-              <h3 className="text-sm font-bold text-white font-display">Meeting Concluded - AI Summary Report</h3>
-            </div>
-            <div className="flex items-center gap-2">
-              <button 
-                onClick={downloadTranscript}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-zinc-900 border border-zinc-800 text-zinc-300 hover:text-white transition"
-                style={{ cursor: 'pointer', padding: '6px 12px', border: '1px solid #27272a', borderRadius: '8px', backgroundColor: '#18181b', color: '#d4d4d8' }}
-              >
-                Export Transcript (.txt)
-              </button>
-              <button 
-                onClick={downloadSummaryMarkdown}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold grad-btn text-white transition"
-                style={{ cursor: 'pointer', padding: '6px 12px', borderRadius: '8px', color: '#ffffff' }}
-              >
-                Export Report (.md)
-              </button>
-              <button 
-                onClick={() => setSummaryData(null)}
-                className="text-xs text-zinc-550 hover:text-zinc-300 ml-2"
-                style={{ cursor: 'pointer', background: 'none', border: 'none', color: '#71717a' }}
-              >
-                Dismiss
-              </button>
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-4 md:flex-row">
-            {/* Quick summary paragraph */}
-            <div className="flex-1 flex flex-col gap-1.5">
-              <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Outcomes Summary</span>
-              <p className="text-xs text-zinc-300 leading-relaxed bg-zinc-900/30 p-3 rounded-xl border border-zinc-850">
-                {summaryData.summary}
-              </p>
-            </div>
-
-            {/* Action items list */}
-            <div className="w-[280px] shrink-0 flex flex-col gap-1.5">
-              <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Action Items</span>
-              <ul className="text-xs text-zinc-300 flex flex-col gap-1.5 bg-zinc-900/30 p-3 rounded-xl border border-zinc-850">
-                {summaryData.actionItems.map((item: string, i: number) => (
-                  <li key={i} className="flex items-start gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 mt-1.5 shrink-0" />
-                    <span>{item}</span>
-                  </li>
-                ))}
-                {summaryData.actionItems.length === 0 && <span className="text-zinc-600">No action items detected.</span>}
-              </ul>
-            </div>
-
-            {/* Decisions list */}
-            <div className="w-[240px] shrink-0 flex flex-col gap-1.5">
-              <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Key Decisions</span>
-              <ul className="text-xs text-zinc-300 flex flex-col gap-1.5 bg-zinc-900/30 p-3 rounded-xl border border-zinc-850">
-                {summaryData.decisions.map((dec: string, i: number) => (
-                  <li key={i} className="flex items-start gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 mt-1.5 shrink-0" />
-                    <span>{dec}</span>
-                  </li>
-                ))}
-                {summaryData.decisions.length === 0 && <span className="text-zinc-600">No major decisions logged.</span>}
-              </ul>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {isSummarizing && (
-        <div className="glass-card rounded-2xl border border-indigo-900/30 p-5 bg-zinc-950/60 flex items-center justify-center gap-3">
-          <div className="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-          <span className="text-xs font-mono text-zinc-400">Analyzing transcript to generate Summary and Action Items...</span>
-        </div>
-      )}
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 0.3; transform: scale(0.8); }
+          50% { opacity: 1; transform: scale(1.2); }
+        }
+      `}</style>
     </div>
   );
 }

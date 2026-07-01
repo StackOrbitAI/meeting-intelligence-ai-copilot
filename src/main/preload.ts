@@ -20,6 +20,8 @@ contextBridge.exposeInMainWorld('api', {
     delete: (id: string) => ipcRenderer.invoke('brains:delete', id),
     indexFile: (brainId: string, filePath: string, fileName: string) =>
       ipcRenderer.invoke('brains:indexFile', brainId, filePath, fileName),
+    indexRawText: (brainId: string, text: string, sourceName: string) =>
+      ipcRenderer.invoke('brains:indexRawText', brainId, text, sourceName),
     deleteFile: (brainId: string, fileName: string) =>
       ipcRenderer.invoke('brains:deleteFile', brainId, fileName),
     search: (brainId: string, query: string, topK?: number) =>
@@ -34,10 +36,14 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke('ai:enhance', prompt, systemPrompt),
     translate: (text: string, targetLanguage: string) =>
       ipcRenderer.invoke('ai:translate', text, targetLanguage),
+    transcribeAndTranslateAudio: (audioBase64: string, targetLanguage: string) =>
+      ipcRenderer.invoke('ai:transcribeAndTranslateAudio', audioBase64, targetLanguage),
     suggestReplies: (transcriptSnippet: string, contextInfo: string, userHints: string) =>
       ipcRenderer.invoke('ai:suggestReplies', transcriptSnippet, contextInfo, userHints),
     summarizeMeeting: (fullTranscript: string) =>
-      ipcRenderer.invoke('ai:summarizeMeeting', fullTranscript)
+      ipcRenderer.invoke('ai:summarizeMeeting', fullTranscript),
+    analyzeChat: (chatText: string) =>
+      ipcRenderer.invoke('ai:analyzeChat', chatText)
   },
   window: {
     closeHUD: () => ipcRenderer.invoke('window:closeHUD'),
@@ -54,6 +60,15 @@ contextBridge.exposeInMainWorld('api', {
     }
   },
   app: {
-    openExternal: (url: string) => ipcRenderer.invoke('app:openExternal', url)
+    openExternal: (url: string) => ipcRenderer.invoke('app:openExternal', url),
+    checkForUpdates: () => ipcRenderer.invoke('app:checkForUpdates'),
+    onUpdateStatus: (callback: (data: any) => void) => {
+      const listener = (_event: any, data: any) => callback(data);
+      ipcRenderer.on('app:updateStatus', listener);
+      return () => ipcRenderer.off('app:updateStatus', listener);
+    }
+  },
+  desktopSources: {
+    get: () => ipcRenderer.invoke('desktopSources:get')
   }
 });

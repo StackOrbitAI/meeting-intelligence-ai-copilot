@@ -8,8 +8,10 @@ import {
   globalShortcut,
   clipboard,
   Notification,
-  session
+  session,
+  desktopCapturer
 } from 'electron';
+import { autoUpdater } from 'electron-updater';
 import path from 'path';
 import fs from 'fs';
 import http from 'http';
@@ -362,6 +364,41 @@ function stopLocalServer() {
   }
 }
 
+function setupAutoUpdater() {
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on('checking-for-update', () => {
+    sendUpdateStatus('checking');
+  });
+
+  autoUpdater.on('update-available', (info) => {
+    sendUpdateStatus('available', info);
+  });
+
+  autoUpdater.on('update-not-available', (info) => {
+    sendUpdateStatus('not-available', info);
+  });
+
+  autoUpdater.on('error', (err) => {
+    sendUpdateStatus('error', err.message);
+  });
+
+  autoUpdater.on('download-progress', (progressObj) => {
+    sendUpdateStatus('downloading', progressObj);
+  });
+
+  autoUpdater.on('update-downloaded', (info) => {
+    sendUpdateStatus('downloaded', info);
+  });
+}
+
+function sendUpdateStatus(status: string, details: any = null) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('app:updateStatus', { status, details });
+  }
+}
+
 function configureStartup() {
   const settings = StorageService.getSettings();
   try {
@@ -424,6 +461,19 @@ if (!gotTheLock) {
     registerGlobalShortcut();
     configureStartup();
     startLocalServer();
+    setupAutoUpdater();
+
+    // Background auto-check every 1 hour
+    setInterval(() => {
+      autoUpdater.checkForUpdates();
+    }, 60 * 60 * 1000);
+
+    // Initial check
+    try {
+      autoUpdater.checkForUpdatesAndNotify();
+    } catch (err) {
+      console.error('Failed to run initial check:', err);
+    }
 
     // In dev mode, always open main window immediately
     createMainWindow();
@@ -482,6 +532,9 @@ ipcMain.handle('brains:delete', (_event, id) => StorageService.deleteBrain(id));
 ipcMain.handle('brains:indexFile', (_event, brainId, filePath, fileName) =>
   RAGService.indexFile(brainId, filePath, fileName)
 );
+ipcMain.handle('brains:indexRawText', (_event, brainId, text, sourceName) =>
+  RAGService.indexRawText(brainId, text, sourceName)
+);
 ipcMain.handle('brains:deleteFile', (_event, brainId, fileName) =>
   RAGService.deleteFile(brainId, fileName)
 );
@@ -496,10 +549,14 @@ ipcMain.handle('meetings:save', (_event, record) => StorageService.saveMeeting(r
 // AI Engine API Wrappers
 ipcMain.handle('ai:enhance', (_event, prompt, systemPrompt) => AIService.enhancePrompt(prompt, systemPrompt));
 ipcMain.handle('ai:translate', (_event, text, targetLang) => AIService.translateText(text, targetLang));
+ipcMain.handle('ai:transcribeAndTranslateAudio', (_event, audioBase64, targetLang) => 
+  AIService.transcribeAndTranslateAudio(audioBase64, targetLang)
+);
 ipcMain.handle('ai:suggestReplies', (_event, transcript, context, hints) =>
   AIService.generateReplySuggestions(transcript, context, hints)
 );
 ipcMain.handle('ai:summarizeMeeting', (_event, transcript) => AIService.generateMeetingSummary(transcript));
+ipcMain.handle('ai:analyzeChat', (_event, chatText) => AIService.analyzeChatAndExtract(chatText));
 
 // Window Management
 ipcMain.handle('window:closeHUD', () => {
@@ -517,6 +574,19 @@ ipcMain.handle('window:copyHUD', (_event, text) => {
 ipcMain.handle('window:openMainWindow', () => {
   createMainWindow();
 });
+ipcMain.handle('desktopSources:get', async () => {
+  return await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 0, height: 0 } });
+});
+
+ipcMain.handle('app:checkForUpdates', async () => {
+  try {
+    const result = await autoUpdater.checkForUpdatesAndNotify();
+    return { success: true, result };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+});
+
 ipcMain.handle('app:openExternal', (_event, url) => {
   shell.openExternal(url);
 });
